@@ -107,6 +107,7 @@ function pickHtml(c, i) {
     <a class="ph" href="#/hotel/${encodeURIComponent(c.id)}" aria-label="${esc(c.name)}" ${photoBox(c)}><span class="rank" aria-label="Вариант ${i + 1}">${i + 1}</span>${c.photo ? "" : initials(c.name)}</a>
     <div class="bd">
       <div class="hd"><h2><a href="#/hotel/${encodeURIComponent(c.id)}">${esc(c.name)}</a></h2>${c.price ? `<div class="price">от ${money(c.price)}<small>за ночь</small></div>` : ""}</div>
+      ${c.pinned ? '<div class="tags"><span class="tag geo">Вы искали этот отель</span></div>' : ""}
       <div class="where">${[c.stars ? stars(c.stars) : "", c.rating ? `${rate(c.rating)}${c.reviews ? ` (${c.reviews})` : ""}` : "", shortAddr(c.address)].filter(Boolean).map(esc).join(" · ")}</div>
       <div class="match" role="img" aria-label="Совпадение ${c.score}%"><div class="tr"><i style="width:${Math.max(4, c.score)}%"></i></div><b>${matchWord(c)}</b><span class="muted num">${c.score}%</span></div>
       <div class="say"><div class="av" aria-hidden="true">${FROG_MINI}</div><div class="bubble${!sayCache[c.id + "|" + c.score] && frogLLM !== "off" ? " wait" : ""}" data-say="${esc(c.id)}">${esc(sayCache[c.id + "|" + c.score] || c.say)}</div></div>
@@ -119,10 +120,14 @@ function understoodHtml(u) {
   if (!u) return "";
   const chips = (u.intents || []).map(i => `<span class="chip">${esc(i.title)}</span>`).join("") + filterChips(u.filters || {}).map(([, t]) => `<span class="chip flt">${esc(t)}</span>`).join("");
   let note = "";
-  if (u.image_off) note = `<div class="note">${u.image_what ? `На фото ${esc(u.image_what)}` : "Это фото"} — на отель или место отдыха не похоже, поэтому я его не учитывала. Искала по вашим словам.</div>`;
+  const found = u.found && Object.values(u.found.names || {}).map(n => `«${esc(n)}»`).join(", ");
+  if (found) note = `<div class="note">${u.found.how === "photo" ? "Узнала по фото" : "Нашла по названию"}: ${found}.</div>`;
+  else if (u.image_off) note = `<div class="note">${u.image_what ? `На фото ${esc(u.image_what)}` : "Это фото"} — на отель или место отдыха не похоже, поэтому я его не учитывала. Искала по вашим словам.</div>`;
   else if (u.image_read && u.image_note) note = `<div class="note">На фото я увидела: ${esc(u.image_note)}</div>`;
   else if (u.image_given) note = `<div class="note">Фото я пока не разглядела (нужна модель, которая видит картинки), поэтому искала только по тексту.</div>`;
-  return `<div class="understood">${chips ? `<div class="chips"><span>Я поняла так:</span>${chips}</div>` : `<div class="note">Не услышала конкретных пожеланий. Расскажите про вид, тишину, баню или путь до берега, и я подберу точнее.</div>`}${note}</div>`;
+  if (u.photo_indexing) note += `<div class="note">Фотографии отелей из базы я ещё запоминаю: через пару минут смогу узнавать отель по снимку.</div>`;
+  const noWish = found ? "" : `<div class="note">Не услышала конкретных пожеланий. Расскажите про вид, тишину, баню или путь до берега, и я подберу точнее.</div>`;
+  return `<div class="understood">${chips ? `<div class="chips"><span>Я поняла так:</span>${chips}</div>` : noWish}${note}</div>`;
 }
 function coverText(cov) {
   if (!cov || !cov.total) return "";
@@ -173,6 +178,8 @@ function turnHtml(t, i, isLast) {
   }
   if (!r.top.length) {
     const cov = r.coverage || {}, cs = cov.candidates || [], fl = (r.parsed && r.parsed.filters) || {};
+    if (r.parsed && (r.parsed.pinned_catalog || []).length && t.ack)        // назвали отель, который ещё не изучен: он уже в очереди
+      return `<div data-t="${i}">${BUBBLE(esc(t.ack))}${understoodHtml(t.understood)}${coverText(cov)}${candidatesHtml(cov)}</div>`;
     const what = [kindTitle(fl), fl.place_where].filter(Boolean).join(" ") || "подходящее жильё";   // «квартира / апартаменты в Листвянке»
     const What = what[0].toUpperCase() + what.slice(1);
     if (!cs.length) return `<div data-t="${i}">${understoodHtml(t.understood)}${BUBBLE(`Ква! ${What}: под такие пожелания я ничего не нашла. Попробуйте смягчить условия, выбрать другой тип жилья или соседний посёлок.`)}</div>`;

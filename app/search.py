@@ -486,11 +486,15 @@ def search(q: str, limit: int = 30, parsed: dict | None = None) -> dict:
             h["place"] = places.place_of(h.get("master_id"))
         sc = score_hotel(h, parsed["intents"], parsed["filters"], parsed["text_terms"], facts.get(h["id"], {}))
         known = [i for i in sc["items"] if i["status"] != "unknown" and i["feature"] != "text"]
-        res.append({"id": h["id"], "name": h["name"], "stars": h["stars"], "rating": h["rating"], "reviews": h["reviews_count"], "price_from": h["price_from"],
+        res.append({"id": h["id"], "master_id": h.get("master_id"), "name": h["name"], "stars": h["stars"], "rating": h["rating"], "reviews": h["reviews_count"], "price_from": h["price_from"],
                     "lat": h["lat"], "lon": h["lon"], "photo": h["photo"], "address": h["address"], "url": h["url"], **sc,
                     "known": len(known), "asked": len(sc["items"])})
     res.sort(key=lambda x: (-x["score"], -(x["rating"] or 0)))
-    return {"parsed": {k: v for k, v in parsed.items() if k != "text_terms"}, "total": len(res), "results": res[:limit]}
+    out = res[:limit]
+    pins, pin_master = set(parsed.get("pinned") or []), {str(x) for x in parsed.get("pinned_catalog") or []}
+    if pins or pin_master:                       # отель, узнанный по фото или названию, не должен потеряться за лимитом
+        out += [r for r in res[limit:] if r["id"] in pins or str(r.get("master_id")) in pin_master]
+    return {"parsed": {k: v for k, v in parsed.items() if k != "text_terms"}, "total": len(res), "results": out}
 
 
 # ───────────────────────── сравнение ─────────────────────────

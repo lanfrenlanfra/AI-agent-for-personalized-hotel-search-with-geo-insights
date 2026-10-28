@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import llm, search
+from . import db, identify, llm, search
 
 IMG_PROMPT = ("Посмотри на фото: человек выбирает отель на Байкале и приложил его как референс. Верни ТОЛЬКО JSON вида "
               '{"relevant": true|false, "what": "что на фото, 3-8 слов", "wishes": "..."}. '
@@ -134,8 +134,66 @@ def merge_wish(prev: str, new: str, history: list | None = None) -> str:
     return f"{prev}. {new}"
 
 
+# Явно назван отель: кавычки, «называется…», или «отель/гостиница/гостевой дом» прямо перед именем с заглавной буквы.
+_NAME_CUE = re.compile(r"[«»\"„“]|(?i:\bназыва\w*|\bназвани\w*)|(?i:\b(?:отел\w*|гостиниц\w*|гостев\w*\s+дом\w*|баз[аеуы]\s+отдыха))\s+[A-ZА-ЯЁ]")
+
+
+def _hotel_names(ids: list[str]) -> dict[str, str]:
+    if not ids:
+        return {}
+    q = ",".join("?" * len(ids))
+    return {r["id"]: r["name"] for r in db.rows(f"SELECT id, name FROM hotels WHERE id IN ({q})", tuple(ids))}
+
+
+def recognize(text: str, image: str | None) -> dict:
+    """Гость прислал фото конкретного отеля или назвал его? {'how': 'photo'|'name'|None, 'hotels', 'catalog', 'names', 'indexing'}."""
+    out = {"how": None, "hotels": [], "catalog": [], "names": {}, "indexing": False}
+    if image:
+        st = identify.status()
+        if st["building"] or not st["photos"] or identify.missing():
+            identify.start_indexing()              # фото новых изученных отелей досчитаются в фоне
+            out["indexing"] = not st["photos"] or st["building"]
+        m = identify.by_photo(image)
+        if m:
+            out.update(how="photo", hotels=m["hotels"], names=_hotel_names(m["hotels"]))
+            return out
+    if text.strip():
+        hit = identify.by_name(text)
+        if hit["hotels"] or hit["catalog"]:
+            name_words = {w for n in hit["names"].values() for w in identify.raw_words(n)}
+            rest = [w for w in identify.raw_words(text) if w not in identify.FILLER and not any(identify._same(w, n) for n in name_words)]
+            p = search.parse_query_rules(" ".join(hit["used"]))
+            common = all(identify.common_word(t) for t in hit["used"])          # «На берегу Байкала», «Тихий дворик»
+            plain = bool(p["intents"] or p["filters"]) or common               # «Закат», «Берег» — это и обычные пожелания
+            # закрепляем, если отель назван явно (кавычки, «отель Маяк»), если запрос — само название из необычных слов,
+            # или если слова названия не похожи на пожелания («Маяк с баней»)
+            if _NAME_CUE.search(text) or (not rest and not common) or not plain:
+                out.update(how="name", hotels=hit["hotels"], catalog=hit["catalog"], names=hit["names"])
+    return out
+
+
+def _found_ack(rec: dict, extra: bool) -> str:
+    names = [rec["names"].get(k, k) for k in rec["hotels"] + rec["catalog"]]
+    quoted = " и ".join(f"«{n}»" for n in names)
+    if rec["how"] == "photo":
+        base = f"Ква! Узнала фото: это {quoted}." if len(names) == 1 else f"Ква! Это фото есть сразу у нескольких объявлений: {quoted}."
+    elif rec["hotels"]:
+        base = "Ква! Нашла " + " и ".join(f"«{rec['names'].get(k, k)}»" for k in rec["hotels"]) + "."
+    else:
+        return (f"Ква! {quoted} есть в каталоге Островка, но подробно я {'его' if len(names) == 1 else 'их'} ещё не изучала. "
+                "Уже проверяю по карте и отзывам, карточка появится здесь сама.")
+    base += " Проверила по вашим пожеланиям, рядом ещё варианты." if extra else " Вот что я про него знаю. Расскажите, что для вас важно, и подберу похожие."
+    if rec["catalog"] and rec["hotels"]:
+        others = ", ".join(f"«{rec['names'].get(k, k)}»" for k in rec["catalog"])
+        base += f" С похожим названием есть ещё {others}: их пока знаю только по каталогу, уже проверяю."
+    return base
+
+
 def understand(text: str, image: str | None, wish: str = "", history: list | None = None) -> dict:
     """Склеивает текст и описание картинки в один запрос и разбирает его. Если это не поиск, готовит ответ лягушки."""
+    rec = recognize(text, image)
+    if rec["how"]:
+        return _understand_found(text, rec, wish, history, bool(image))
     img = describe_image(image) if image else None
     res = {"text": text.strip(), "image_given": bool(image), "image_read": img is not None, "image_note": None, "image_off": False, "image_what": None, "chat": None}
     if img:
@@ -171,12 +229,38 @@ def understand(text: str, image: str | None, wish: str = "", history: list | Non
     res["parsed"] = parsed
     res["wish"] = merged
     res["ack"] = None
+    res["photo_indexing"] = rec["indexing"]
     if prev:
         before = {i["title"] for i in search.parse_query(prev, use_llm=False)["intents"]}
         added = [i["title"].lower() for i in parsed["intents"] if i["title"] not in before]
         res["ack"] = (f"Ква! Добавила к прежнему: {', '.join(added)}. Обновила тройку." if added
                       else "Ква! Учла вашу поправку и пересобрала тройку.")
     return res
+
+
+def _strip_name(text: str, names: list[str]) -> str:
+    """«Гостевой дом Уютная лиса с баней» → «с баней»: слова названия — не пожелания (иначе «Двор и закат» станет «окна во двор, закат»)."""
+    name_words = {w for n in names for w in re.split(r"[\s-]+", identify._norm(n)) if len(w) >= 3}
+    kept = [w for w in re.findall(r"[\w-]+|[^\w-]+", text) if not (identify._norm(w) and any(identify._same(identify._norm(w), n) for n in name_words))]
+    out = re.sub(r"\s+", " ", re.sub(r"[«»\"„“]", " ", "".join(kept))).strip(" ,.;—-")
+    return out if re.search(r"\w{3,}", out) else ""
+
+
+def _understand_found(text: str, rec: dict, wish: str, history: list | None, image_given: bool) -> dict:
+    """Гость показал конкретный отель: ставим его первым, по остальным словам запроса ищем как обычно."""
+    t = text.strip()
+    if rec["how"] == "name":
+        t = _strip_name(t, list(rec["names"].values()))
+    prev = (wish or "").strip()[:600]
+    merged = (merge_wish(prev, t, history) if prev else t) if t else prev
+    empty = {"query": merged, "intents": [], "filters": {}, "text_terms": [], "parsed_by": "rules"}
+    parsed = search.parse_query(merged, use_llm=llm.state() == "ready") if merged else empty
+    parsed["pinned"] = rec["hotels"]
+    parsed["pinned_catalog"] = rec["catalog"]
+    extra = bool(parsed["intents"] or parsed.get("filters"))
+    return {"text": t, "image_given": image_given, "image_read": rec["how"] == "photo", "image_note": None, "image_off": False, "image_what": None,
+            "chat": None, "parsed": parsed, "wish": merged, "ack": _found_ack(rec, extra), "found": {"how": rec["how"], "names": rec["names"]},
+            "photo_indexing": False}
 
 
 def _short(i: dict) -> str:
@@ -210,13 +294,18 @@ def _wrong_kind(r: dict) -> bool:
     return any(i["feature"] in ("kind", "place") and i["verdict"] == "no" for i in r["items"])
 
 
-def top(res: list[dict], n: int = 3, wish: str = "") -> list[dict]:
-    res = [r for r in res if not _wrong_kind(r)]   # просили квартиру в Листвянке — отель «для массовки» не подставляем, лучше честно сказать, что ещё ищем
+def top(res: list[dict], n: int = 3, wish: str = "", parsed: dict | None = None) -> list[dict]:
+    p = parsed or {}
+    want_ids, want_master = set(p.get("pinned") or []), {str(x) for x in p.get("pinned_catalog") or []}
+    pinned = [r for r in res if r["id"] in want_ids or str(r.get("master_id")) in want_master][:3]   # тот самый отель — по фото или названию
+    res = [r for r in res if r not in pinned and not _wrong_kind(r)]   # просили квартиру в Листвянке — отель «для массовки» не подставляем
+    asked = bool(p.get("intents") or {k: v for k, v in (p.get("filters") or {}).items() if not k.startswith("place_")})
+    n = max(0, n - len(pinned)) if (asked or not (want_ids or want_master)) else 0   # только название/фото — «похожих» подбирать не по чему
     good = [r for r in res if r["label"] != "Не подходит"]
     pool = good if len(good) >= n else good + [r for r in res if r["label"] == "Не подходит"]
     # сначала те, о ком что-то известно: пустая «карточка каталога» не должна обгонять проверенный отель
     pool.sort(key=lambda r: (-(r["score"] + (6 if r["known"] else 0)), -(r["rating"] or 0)))
-    out = [card(r) for r in pool[:n]]
+    out = [{**card(r), "pinned": True} for r in pinned] + [card(r) for r in pool[:n]]
     for c in out:
         c["say"] = template_say(c, wish)       # мгновенный текст; живой голос модели подменяет его, когда готов
     return out

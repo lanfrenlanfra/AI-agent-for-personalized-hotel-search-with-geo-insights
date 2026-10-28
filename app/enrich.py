@@ -87,6 +87,8 @@ def run_one(master_id: str) -> bool:
         db.execute("UPDATE catalog SET enrich_status='failed', enrich_error=?, enrich_updated=? WHERE master_id=?", (str(e)[:300], _now(), master_id))
         return False
     db.execute("UPDATE catalog SET enrich_status='done', hotel_id=?, enrich_error=NULL, enrich_updated=? WHERE master_id=?", (hid, _now(), master_id))
+    from . import identify
+    identify.start_indexing()                     # запомнить фото нового отеля, чтобы узнавать его по снимку
     return True
 
 
@@ -147,6 +149,11 @@ def augment(parsed: dict, result: dict, queue_new: bool = True) -> dict:
         return result
     cov["enabled"] = enabled()
     cands = catalog.candidates(parsed, k=max(settings.enrich_batch * 2, 12))
+    pin = [str(m) for m in parsed.get("pinned_catalog") or []]       # гость назвал отель, которого мы ещё не изучали — он первый в очереди
+    if pin:
+        rows = {str(r["master_id"]): r for r in db.rows(f"SELECT * FROM catalog WHERE master_id IN ({','.join('?' * len(pin))})", pin)}
+        first = [dict(catalog._row(rows[m]), coarse=1.0, notes=["вы назвали этот отель"]) for m in pin if m in rows]
+        cands = first + [c for c in cands if str(c["master_id"]) not in rows]
     if cov["enabled"]:
         if queue_new:
             cov["queued_now"] = len(queue([c["master_id"] for c in cands[:settings.enrich_batch]]))
@@ -154,5 +161,7 @@ def augment(parsed: dict, result: dict, queue_new: bool = True) -> dict:
             cov.update(catalog.stats())
         cands = [dict(c, **(db.row("SELECT enrich_status, enrich_error FROM catalog WHERE master_id=?", (c["master_id"],)) or {})) for c in cands]
     cov["candidates"] = [_card(c) for c in cands if c.get("enrich_status") != "done"][:settings.enrich_batch]
+    if pin and not parsed.get("intents") and not parsed.get("filters"):
+        cov["candidates"] = [c for c in cov["candidates"] if str(c["master_id"]) in pin]      # спросили один отель — только его
     result["coverage"] = cov
     return result

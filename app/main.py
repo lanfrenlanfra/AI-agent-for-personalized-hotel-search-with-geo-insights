@@ -17,7 +17,7 @@ from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import frog, catalog, db, enrich, freshness, hotelier, horizon, ingest, llm, metrics, ostrovok, pipeline, reconcile, registry, search
+from . import frog, catalog, db, enrich, freshness, hotelier, horizon, identify, ingest, llm, metrics, ostrovok, pipeline, reconcile, registry, search
 from .collectors.base import SCOPE_TITLES, SOURCES
 from .config import BASE_DIR, settings
 
@@ -57,7 +57,7 @@ async def meta(request: Request):
     seeded = db.row("SELECT value FROM meta WHERE key='seeded_at'")
     return ok({
         "hotels": db.row("SELECT COUNT(*) AS n FROM hotels")["n"], "features": len(registry.all_features()),
-        "llm": llm.available(), "llm_state": llm.state(), "llm_model": settings.llm_model if llm.available() else None, "demo_synthetic": bool(getattr(settings, "demo_mode", False)),
+        "llm": llm.available(), "llm_state": llm.state(), "llm_model": settings.llm_model if llm.available() else None, "demo_synthetic": bool(getattr(settings, "demo_mode", False)), "photo_index": identify.status(),
         "region": settings.region_slug, "seeded_at": seeded["value"] if seeded else None, "today": date.today().isoformat(),
         "sources": SOURCES, "scopes": SCOPE_TITLES, "groups": registry.GROUP_TITLES,
         "statuses": reconcile.STATUS_TITLES,
@@ -208,7 +208,7 @@ async def frog_ask(request: Request):
     wish = (und or {}).get("wish") or text
     res = search.search(wish, 200, parsed)
     res = await run_in_threadpool(enrich.augment, parsed, res, not passive)
-    out = {"mode": "search", "wish": wish, "ack": (und or {}).get("ack"), "top": frog.top(res["results"], 3, wish), "coverage": res.get("coverage"), "parsed": {k: v for k, v in parsed.items() if k != "text_terms"},
+    out = {"mode": "search", "wish": wish, "ack": (und or {}).get("ack"), "top": frog.top(res["results"], 3, wish, parsed), "coverage": res.get("coverage"), "parsed": {k: v for k, v in parsed.items() if k != "text_terms"},
            "llm_state": llm.state()}
     if und:
         out["understood"] = {k: v for k, v in und.items() if k not in ("parsed", "chat", "wish", "ack")}
@@ -500,6 +500,7 @@ def startup():
     freshness.start_background()
     if enrich.enabled():
         enrich.start_worker()
+    identify.start_indexing()       # отпечатки фото отелей: чтобы узнавать отель по присланному снимку (досчитывается в фоне)
 
 
 def pick_data_dir() -> None:
