@@ -163,7 +163,7 @@ def parse_answer_rules(text: str, question_feature: str | None, simulated: bool 
 
 
 def parse_answer_llm(text: str, question_feature: str | None, simulated: bool) -> list[Obs] | None:
-    if not llm.available():
+    if not llm.usable():
         return None
     feats = registry.all_features()
     schema = {k: {"title": v["title"], "kind": v["kind"], "hint": v["description"][:100]} for k, v in feats.items()}
@@ -301,7 +301,7 @@ def _simulate_rules(hotel_id: str, feature: str) -> str:
 
 
 def simulate_answer(hotel_id: str, feature: str) -> str:
-    if llm.available():
+    if llm.usable():
         h = db.row("SELECT name FROM hotels WHERE id=?", (hotel_id,))
         spec = registry.get(feature) or {}
         f = db.row("SELECT value, status FROM facts WHERE hotel_id=? AND feature=? AND scope='hotel'", (hotel_id, feature))

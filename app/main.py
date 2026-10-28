@@ -214,7 +214,7 @@ def draft_spec(description: str) -> dict:
         "Ты помогаешь описать новую характеристику отеля для поиска. По описанию верни JSON: {\"title\":короткое название,\"kind\":\"bool\"|\"score\"|\"number\","
         "\"synonyms\":[основы слов, по которым гость будет искать, 4-8],\"review_pos\":[regex для отзывов, подтверждающие],\"review_neg\":[regex, опровергающие],"
         "\"question\":вопрос отельеру,\"ttl_days\":число,\"unit\":для number или null,\"good\":\"high\"|\"low\"}. Regex на русском в нижнем регистре, без заглавных.",
-        description) if llm.available() else None
+        description) if llm.usable() else None
     if isinstance(res, dict) and res.get("title"):
         return {"title": res["title"], "kind": res.get("kind", "bool"), "synonyms": res.get("synonyms") or [], "review": {"pos": res.get("review_pos") or [], "neg": res.get("review_neg") or []},
                 "question": res.get("question") or f"Есть ли у вас: {description}?", "ttl_days": res.get("ttl_days") or 365, "unit": res.get("unit"), "good": res.get("good", "high"),

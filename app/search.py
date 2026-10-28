@@ -162,7 +162,7 @@ STOP = set("видом вид окна окно выше летом зимой �
 
 
 def parse_query_llm(q: str) -> dict | None:
-    if not llm.available():
+    if not llm.usable():
         return None
     feats = registry.all_features()
     catalog = "\n".join(f'- {k}: {v["title"]} ({v["kind"]}{", меньше=лучше" if v.get("good") == "low" else ""})' for k, v in feats.items())
