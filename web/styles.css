@@ -351,3 +351,8 @@ th { font-weight: 600; background: var(--ice2); border-top: 0; }
 .dock .ask-card textarea { min-height: 28px; }
 @media (max-width: 640px) { .frog-home.done #newchat { position: static; } .thread .msg.me .bub { max-width: 88%; } }
 .thread [data-t] { scroll-margin-top: 84px; }
+
+/* отель, который гость показал сам (фото или название): вместо полосы процентов — «тот самый» */
+.match.found { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.match.found b { color: var(--ok); }
+.match.found .muted { font-size: 13.5px; }

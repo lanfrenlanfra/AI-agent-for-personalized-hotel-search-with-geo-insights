@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import db, identify, llm, search
+from . import db, identify, llm, registry, search
 
 IMG_PROMPT = ("Посмотри на фото: человек выбирает отель на Байкале и приложил его как референс. Верни ТОЛЬКО JSON вида "
               '{"relevant": true|false, "what": "что на фото, 3-8 слов", "wishes": "..."}. '
@@ -134,8 +134,19 @@ def merge_wish(prev: str, new: str, history: list | None = None) -> str:
     return f"{prev}. {new}"
 
 
-# Явно назван отель: кавычки, «называется…», или «отель/гостиница/гостевой дом» прямо перед именем с заглавной буквы.
-_NAME_CUE = re.compile(r"[«»\"„“]|(?i:\bназыва\w*|\bназвани\w*)|(?i:\b(?:отел\w*|гостиниц\w*|гостев\w*\s+дом\w*|баз[аеуы]\s+отдыха))\s+[A-ZА-ЯЁ]")
+# Явно назван отель: кавычки, «называется…», или тип жилья, сразу за которым идёт слово из названия:
+# «отель маяк», «ЧАСТНЫЙ ДОМ ТИХИЙ ДВОРИК», «квартира байкал интурист». Регистр не важен.
+_QUOTE_CUE = re.compile(r"[«»\"„“]|\bназыва\w*|\bназвани\w*", re.I)
+_KIND_WORD = re.compile(r"\b(?:мини-?отел\w*|отел\w*|гостиниц\w*|гостев\w*\s+дом\w*|баз[аеуы]\s+отдыха|турбаз\w*|частн\w*\s+дом\w*|коттедж\w*|"
+                        r"апартамент\w*|квартир\w*|хостел\w*|кемпинг\w*|гл[эе]мпинг\w*|усадьб\w*|вилл[аыуе]|шале|санатори\w*|"
+                        r"hotel|guest\s*house|apartments?|hostel|villa|cottage)\s+([\w-]+)", re.I)
+
+
+def _named_explicitly(text: str, name_words: set[str]) -> bool:
+    if _QUOTE_CUE.search(text):
+        return True
+    t = text.replace("ё", "е").replace("Ё", "Е")
+    return any(any(identify._same(identify._norm(m.group(1)), n) for n in name_words) for m in _KIND_WORD.finditer(t))
 
 
 def _hotel_names(ids: list[str]) -> dict[str, str]:
@@ -167,24 +178,29 @@ def recognize(text: str, image: str | None) -> dict:
             plain = bool(p["intents"] or p["filters"]) or common               # «Закат», «Берег» — это и обычные пожелания
             # закрепляем, если отель назван явно (кавычки, «отель Маяк»), если запрос — само название из необычных слов,
             # или если слова названия не похожи на пожелания («Маяк с баней»)
-            if _NAME_CUE.search(text) or (not rest and not common) or not plain:
+            if _named_explicitly(text, name_words) or (not rest and not common) or not plain:
                 out.update(how="name", hotels=hit["hotels"], catalog=hit["catalog"], names=hit["names"])
     return out
 
 
+def quote(name: str) -> str:
+    """«Маяк», но не ««Тестовый отель «Двор и закат»»»: если кавычки уже есть в названии, не добавляем."""
+    return name if "«" in name or '"' in name else f"«{name}»"
+
+
 def _found_ack(rec: dict, extra: bool) -> str:
     names = [rec["names"].get(k, k) for k in rec["hotels"] + rec["catalog"]]
-    quoted = " и ".join(f"«{n}»" for n in names)
+    quoted = " и ".join(quote(n) for n in names)
     if rec["how"] == "photo":
         base = f"Ква! Узнала фото: это {quoted}." if len(names) == 1 else f"Ква! Это фото есть сразу у нескольких объявлений: {quoted}."
     elif rec["hotels"]:
-        base = "Ква! Нашла " + " и ".join(f"«{rec['names'].get(k, k)}»" for k in rec["hotels"]) + "."
+        base = "Ква! Нашла " + " и ".join(quote(rec["names"].get(k, k)) for k in rec["hotels"]) + "."
     else:
         return (f"Ква! {quoted} есть в каталоге Островка, но подробно я {'его' if len(names) == 1 else 'их'} ещё не изучала. "
                 "Уже проверяю по карте и отзывам, карточка появится здесь сама.")
     base += " Проверила по вашим пожеланиям, рядом ещё варианты." if extra else " Вот что я про него знаю. Расскажите, что для вас важно, и подберу похожие."
     if rec["catalog"] and rec["hotels"]:
-        others = ", ".join(f"«{rec['names'].get(k, k)}»" for k in rec["catalog"])
+        others = ", ".join(quote(rec["names"].get(k, k)) for k in rec["catalog"])
         base += f" С похожим названием есть ещё {others}: их пока знаю только по каталогу, уже проверяю."
     return base
 
@@ -299,13 +315,13 @@ def top(res: list[dict], n: int = 3, wish: str = "", parsed: dict | None = None)
     want_ids, want_master = set(p.get("pinned") or []), {str(x) for x in p.get("pinned_catalog") or []}
     pinned = [r for r in res if r["id"] in want_ids or str(r.get("master_id")) in want_master][:3]   # тот самый отель — по фото или названию
     res = [r for r in res if r not in pinned and not _wrong_kind(r)]   # просили квартиру в Листвянке — отель «для массовки» не подставляем
-    asked = bool(p.get("intents") or {k: v for k, v in (p.get("filters") or {}).items() if not k.startswith("place_")})
+    asked = asked_for_something(p)
     n = max(0, n - len(pinned)) if (asked or not (want_ids or want_master)) else 0   # только название/фото — «похожих» подбирать не по чему
     good = [r for r in res if r["label"] != "Не подходит"]
     pool = good if len(good) >= n else good + [r for r in res if r["label"] == "Не подходит"]
     # сначала те, о ком что-то известно: пустая «карточка каталога» не должна обгонять проверенный отель
     pool.sort(key=lambda r: (-(r["score"] + (6 if r["known"] else 0)), -(r["rating"] or 0)))
-    out = [{**card(r), "pinned": True} for r in pinned] + [card(r) for r in pool[:n]]
+    out = [{**card(r), "pinned": True} if asked else as_found(card(r)) for r in pinned] + [card(r) for r in pool[:n]]
     for c in out:
         c["say"] = template_say(c, wish)       # мгновенный текст; живой голос модели подменяет его, когда готов
     return out
@@ -337,8 +353,60 @@ def _phrase(p: dict) -> str:
     return t if title[:4] in t.lower() else f"{title}: {t}"
 
 
+def asked_for_something(parsed: dict | None) -> bool:
+    """Есть ли в запросе пожелания, кроме самого отеля (по ним и считаются проценты)."""
+    p = parsed or {}
+    return bool(p.get("intents") or {k: v for k, v in (p.get("filters") or {}).items() if not k.startswith("place_")})
+
+
+NOT_A_PLUS = {"construction_nearby", "entrance_hard_to_find", "white_nights"}   # «да» здесь — минус или не про Байкал
+
+
+def highlights(hotel_id: str, n: int = 4) -> list[dict]:
+    """Надёжно установленные плюсы отеля без привязки к запросу: что я про него точно знаю."""
+    feats, facts = registry.all_features(), search.load_facts().get(hotel_id, {})
+    out = []
+    for key, fl in facts.items():
+        spec = feats.get(key)
+        if not spec or spec["kind"] != "bool" or spec.get("good") == "low" or key in NOT_A_PLUS or not fl:
+            continue
+        f = next((x for x in fl if x["scope"] == "hotel"), fl[0])
+        if f["value"].get("v") is True and f["status"] in ("confirmed", "likely"):
+            out.append({"title": spec["title"], "text": _short({"text": f["value"].get("summary") or ""}), "geo": bool(spec.get("computed")),
+                        "w": float(spec.get("importance") or 0.3)})
+    out.sort(key=lambda p: (-p["w"], not p["geo"]))   # сначала важное гостю; при равной важности — посчитанное по карте
+    return [{k: v for k, v in p.items() if k != "w"} for p in out[:n]]
+
+
+def _num(x: float) -> str:
+    return f"{x:,.0f}".replace(",", "\u00a0")
+
+
+def found_say(c: dict) -> str:
+    bits = []
+    if c.get("rating"):
+        bits.append(f"оценка {str(round(c['rating'], 1)).replace('.', ',')}" + (f" по {c['reviews']} отзывам" if c.get("reviews") else ""))
+    if c.get("price"):
+        bits.append(f"от {_num(c['price'])} ₽ за ночь")
+    txt = f"Ква! Это {quote(c['name'])}" + (": " + ", ".join(bits) if bits else "") + "."
+    if c["pros"]:
+        txt += " Из того, что я проверила: " + ", ".join(p["title"].lower() for p in c["pros"][:3]) + "."
+    return txt + " Расскажите, что для вас важно, и я проверю это именно здесь."
+
+
+def as_found(c: dict) -> dict:
+    """Карточка отеля, который гость показал сам (фото или название) без других пожеланий: процентов нет — сравнивать не с чем."""
+    pros = highlights(c["id"])
+    c = {**c, "pinned": True, "found_only": True, "pros": pros, "cons": [], "ask": [],
+         "proof": {**c["proof"], "geo": sum(1 for p in pros if p["geo"]), "checked": len(pros)}}
+    c["say"] = found_say(c)
+    return c
+
+
 def template_say(c: dict, wish: str) -> str:
     """Запасной голос: короткий текст по шаблону из тех же фактов."""
+    if c.get("found_only"):
+        return found_say(c)
     if not (c["pros"] or c["cons"] or c["ask"]):
         return "Ква! Про этот отель у меня пока мало подробностей, поэтому ставлю его в запас."
     parts = ["Ква!"]
@@ -354,6 +422,8 @@ def template_say(c: dict, wish: str) -> str:
 
 
 def say(c: dict, wish: str) -> dict:
+    if c.get("found_only"):                       # «совпадение 0%» модели не показываем: гость просто показал отель
+        return {"text": found_say(c), "by": "template"}
     facts = {"отель": c["name"], "совпадение_процентов": c["score"],
              "подходит": [f'{p["title"]}: {p["text"]}' for p in c["pros"]], "не_подходит": [f'{p["title"]}: {p["text"]}' for p in c["cons"]],
              "нужно_уточнить": [f'{a["title"]} ({a["why"]})' for a in c["ask"]], "цена_от": c["price"], "оценка": c["rating"]}

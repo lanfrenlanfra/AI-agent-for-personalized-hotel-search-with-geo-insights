@@ -48,6 +48,28 @@ _P = [
 ]
 PLACES: dict[str, dict] = {k: {"title": t, "where": w, "rx": rx, "codes": c, "center": ctr, "r_km": r} for k, t, w, rx, c, ctr, r in _P}
 
+# Латиница: как посёлок записан в каталоге Островка (Listvyanka, Khuzhir…) плюс привычные варианты.
+# Для групп и неоднозначных кодов («Baykal» — это и порт, и озеро) латиницу задаём явно.
+_LATIN_EXTRA = {
+    "olkhon": ["olkhon", "olhon", "olchon"], "maloe_more": [r"mal[oa]y?e\s+more", r"small\s+sea"], "north": [r"north(?:ern)?\s+baika?l"],
+    "listvyanka": ["listvianka", "listvjanka"], "khuzhir": ["huzhir", "khuzir"], "baikalsk": ["baykalsk"], "severobaykalsk": ["severobaikalsk"],
+    "port_baikal": [r"port\s+baika?l", r"port\s+baykal"], "sakhyurta": ["sahyurta", "mrs"], "goloustnoe": [r"(?:bolsh\w*\s+)?goloustn\w*"],
+    "ust_barguzin": [r"ust[-\s]?barguzin"],
+}
+_LATIN_SKIP = {"port_baikal", "olkhon", "maloe_more", "north"}          # их коды — общие слова или чужие посёлки
+
+
+def _latin(key: str, p: dict) -> list[str]:
+    out = list(_LATIN_EXTRA.get(key, []))
+    if key not in _LATIN_SKIP:
+        out += [re.escape(c.lower()).replace("\\ ", r"[\s-]+").replace("\\-", r"[\s-]?") for c in p["codes"]]
+    return out
+
+
+for _k, _p in PLACES.items():
+    _lat = _latin(_k, _p)
+    _p["rx_all"] = _p["rx"] + ("|(?:" + "|".join(_lat) + r")(?![\w-])" if _lat else "")
+
 
 def _km(a: float, b: float, c: float, d: float) -> float:
     return 111.2 * math.hypot(a - c, (b - d) * math.cos(math.radians((a + c) / 2)))
@@ -59,11 +81,12 @@ def _on_olkhon(lat: float, lon: float) -> bool:
 
 
 def find_places(text: str) -> tuple[list[str], list[tuple[int, int]]]:
-    """([ключи мест], [занятые куски текста]). Текст уже нормализован (search.norm)."""
+    """([ключи мест], [занятые куски текста]). Регистр не важен: «ЛИСТВЯНКА», «Listvyanka», «в хужире»."""
+    text = text.lower().replace("ё", "е")
     keys: list[str] = []
     spans: list[tuple[int, int]] = []
     for key, p in PLACES.items():
-        for m in re.finditer(r"(?<![\w-])(?:" + p["rx"] + ")", text):
+        for m in re.finditer(r"(?<![\w-])(?:" + p["rx_all"] + ")", text, re.I):
             if any(not (m.end() <= a or m.start() >= b) for a, b in spans):
                 continue
             spans.append((m.start(), m.end()))

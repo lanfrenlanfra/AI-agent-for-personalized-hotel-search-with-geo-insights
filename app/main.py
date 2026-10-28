@@ -259,7 +259,9 @@ async def frog_say(request: Request):
     if not r:
         return err("отель не найден", 404)
     c = frog.card(r)
-    key = f"{hid}|{wish}|{c['score']}|{len(c['pros'])}{len(c['cons'])}{len(c['ask'])}"
+    if hid in (parsed.get("pinned") or []) or str(r.get("master_id")) in {str(x) for x in parsed.get("pinned_catalog") or []}:
+        c = {**c, "pinned": True} if frog.asked_for_something(parsed) else frog.as_found(c)
+    key = f"{hid}|{wish}|{c['score']}|{len(c['pros'])}{len(c['cons'])}{len(c['ask'])}|{c.get('found_only', False)}"
     if key not in _say_cache:
         _say_cache[key] = await run_in_threadpool(frog.say, c, wish)
         if len(_say_cache) > 300:

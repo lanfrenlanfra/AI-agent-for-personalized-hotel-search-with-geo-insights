@@ -37,14 +37,14 @@ MONTH_TITLES = ["января", "февраля", "марта", "апреля", 
 # Порядок важен: «гостевой дом» проверяется раньше «дома».
 KINDS: dict[str, dict] = {
     "guesthouse": {"title": "Гостевой дом", "codes": {"GUESTHOUSE", "BNB"},
-                   "rx": r"гостев\w*\s+дом\w*|гестхаус\w*|гест-хаус\w*"},
+                   "rx": r"гостев\w*\s+дом\w*|гестхаус\w*|гест-хаус\w*|guest\s*-?house\w*|b\s*&\s*b|bnb"},
     "apartment": {"title": "Квартира / апартаменты", "codes": {"APARTMENT", "APART_HOTEL"},
-                  "rx": r"квартир\w*|апартамент\w*|апарт-отел\w*|апарт\b|посуточн\w*|однушк\w*|двушк\w*|студи[яюи]\b"},
+                  "rx": r"квартир\w*|апартамент\w*|апарт-отел\w*|апарт\b|посуточн\w*|однушк\w*|двушк\w*|студи[яюи]\b|apartments?\b|apart-?hotel\w*|flat\b|studio\b"},
     "house": {"title": "Дом / коттедж", "codes": {"COTTAGE", "VILLA_AND_BUNGALOWS"},
-              "rx": r"коттедж\w*|домик\w*|(?:целый|целого|отдельн\w*|частн\w*|деревянн\w*)\s+дом\w*|дом\w*\s+целиком|вилл[аыуе]\b|бунгало|шале|таунхаус\w*"},
-    "hostel": {"title": "Хостел", "codes": {"HOSTEL"}, "rx": r"хостел\w*"},
-    "camping": {"title": "Кемпинг / глэмпинг", "codes": {"CAMPING", "GLAMPING"}, "rx": r"кемпинг\w*|гл[эе]мпинг\w*|палатк\w*"},   # «база отдыха» на Островке бывает любого типа — не фильтруем
-    "sanatorium": {"title": "Санаторий", "codes": {"SANATORIUM", "RESORT"}, "rx": r"санатори\w*|профилактори\w*"},
+              "rx": r"коттедж\w*|домик\w*|(?:целый|целого|отдельн\w*|частн\w*|деревянн\w*)\s+дом\w*|дом\w*\s+целиком|вилл[аыуе]\b|бунгало|шале|таунхаус\w*|cottages?\b|villas?\b|chalet\b|bungalows?\b|(?:whole|private)\s+house\b"},
+    "hostel": {"title": "Хостел", "codes": {"HOSTEL"}, "rx": r"хостел\w*|hostels?\b"},
+    "camping": {"title": "Кемпинг / глэмпинг", "codes": {"CAMPING", "GLAMPING"}, "rx": r"кемпинг\w*|гл[эе]мпинг\w*|палатк\w*|camping\b|glamping\b"},   # «база отдыха» на Островке бывает любого типа — не фильтруем
+    "sanatorium": {"title": "Санаторий", "codes": {"SANATORIUM", "RESORT"}, "rx": r"санатори\w*|профилактори\w*|sanatorium\b"},
 }
 KIND_NAMES = {"HOTEL": "отель", "MINI_HOTEL": "мини-отель", "BOUTIQUE": "бутик-отель", "GUESTHOUSE": "гостевой дом", "BNB": "гостевой дом",
               "APARTMENT": "квартира", "APART_HOTEL": "апарт-отель", "COTTAGE": "коттедж", "VILLA_AND_BUNGALOWS": "вилла или бунгало",

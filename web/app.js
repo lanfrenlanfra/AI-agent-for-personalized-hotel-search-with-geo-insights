@@ -106,10 +106,11 @@ function pickHtml(c, i) {
     <a class="ph" href="#/hotel/${encodeURIComponent(c.id)}" aria-label="${esc(c.name)}" ${photoBox(c)}><span class="rank" aria-label="Вариант ${i + 1}">${i + 1}</span>${c.photo ? "" : initials(c.name)}</a>
     <div class="bd">
       <div class="hd"><h2><a href="#/hotel/${encodeURIComponent(c.id)}">${esc(c.name)}</a></h2>${c.price ? `<div class="price">от ${money(c.price)}<small>за ночь</small></div>` : ""}</div>
-      ${c.pinned ? '<div class="tags"><span class="tag geo">Вы искали этот отель</span></div>' : ""}
+      ${c.pinned && !c.found_only ? '<div class="tags"><span class="tag geo">Вы искали этот отель</span></div>' : ""}
       <div class="where">${[c.stars ? stars(c.stars) : "", c.rating ? `${rate(c.rating)}${c.reviews ? ` (${c.reviews})` : ""}` : "", shortAddr(c.address)].filter(Boolean).map(esc).join(" · ")}</div>
-      <div class="match" role="img" aria-label="Совпадение ${c.score}%"><div class="tr"><i style="width:${Math.max(4, c.score)}%"></i></div><b>${matchWord(c)}</b><span class="muted num">${c.score}%</span></div>
-      <div class="say"><div class="av" aria-hidden="true">${FROG_MINI}</div><div class="bubble${!sayCache[c.id + "|" + c.score] && frogLLM !== "off" ? " wait" : ""}" data-say="${esc(c.id)}">${esc(sayCache[c.id + "|" + c.score] || c.say)}</div></div>
+      ${c.found_only ? `<div class="match found"><b>Тот самый отель</b><span class="muted">проценты появятся, когда расскажете, что для вас важно</span></div>`
+        : `<div class="match" role="img" aria-label="Совпадение ${c.score}%"><div class="tr"><i style="width:${Math.max(4, c.score)}%"></i></div><b>${matchWord(c)}</b><span class="muted num">${c.score}%</span></div>`}
+      <div class="say"><div class="av" aria-hidden="true">${FROG_MINI}</div><div class="bubble${!sayCache[c.id + "|" + c.score] && frogLLM !== "off" && !c.found_only ? " wait" : ""}" data-say="${esc(c.id)}">${esc(sayCache[c.id + "|" + c.score] || c.say)}</div></div>
       ${(c.pros.length || c.cons.length) ? `<div class="tags">${c.pros.map(t => `<span class="tag${t.geo ? " geo" : ""}" title="${t.geo ? "посчитано по координатам и карте" : ""}">${esc(t.title)}</span>`).join("")}${c.cons.map(t => `<span class="tag no">${esc(t.title)}${t.text ? ": " + esc(t.text) : ""}</span>`).join("")}</div>` : ""}
       ${c.ask.length ? `<div class="ask-l"><b>Лучше уточнить:</b> ${c.ask.map(a => `${esc(a.title.toLowerCase())} <span class="muted">(${esc(a.why)})</span>`).join(", ")}</div>` : ""}
       <div class="proof"><span>${esc(proofParts.join(" · "))}</span><span class="sp"></span><a href="#/hotel/${encodeURIComponent(c.id)}">Откуда это известно</a>${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">На Островке ↗</a>` : ""}</div>
@@ -119,7 +120,7 @@ function understoodHtml(u) {
   if (!u) return "";
   const chips = (u.intents || []).map(i => `<span class="chip">${esc(i.title)}</span>`).join("") + filterChips(u.filters || {}).map(([, t]) => `<span class="chip flt">${esc(t)}</span>`).join("");
   let note = "";
-  const found = u.found && Object.values(u.found.names || {}).map(n => `«${esc(n)}»`).join(", ");
+  const found = u.found && Object.values(u.found.names || {}).map(n => /[«"]/.test(n) ? esc(n) : `«${esc(n)}»`).join(", ");
   if (found) note = `<div class="note">${u.found.how === "photo" ? "Узнала по фото" : "Нашла по названию"}: ${found}.</div>`;
   else if (u.image_off) note = `<div class="note">${u.image_what ? `На фото ${esc(u.image_what)}` : "Это фото"} — на отель или место отдыха не похоже, поэтому я его не учитывала. Искала по вашим словам.</div>`;
   else if (u.image_read && u.image_note) note = `<div class="note">На фото я увидела: ${esc(u.image_note)}</div>`;
@@ -135,7 +136,7 @@ function coverText(cov) {
 }
 function upgradeSays(r, text) {
   if (r.llm_state === "off") return;
-  r.top.forEach(c => {
+  r.top.filter(c => !c.found_only).forEach(c => {
     const k = c.id + "|" + c.score, el = () => document.querySelector(`.bubble[data-say="${CSS.escape(c.id)}"]`);
     if (sayCache[k]) { const e = el(); if (e) { e.textContent = sayCache[k]; e.classList.remove("wait"); } return; }
     api("/api/frog/say", { body: { hotel_id: c.id, text, parsed: r.parsed } }).then(a => {
@@ -188,7 +189,7 @@ function turnHtml(t, i, isLast) {
     return `<div data-t="${i}">${t.ack ? BUBBLE(esc(t.ack)) : ""}${understoodHtml(t.understood)}${BUBBLE(esc(say))}${coverText(cov)}${candidatesHtml(cov)}</div>`;
   }
   return `<div data-t="${i}">${t.ack ? BUBBLE(esc(t.ack)) : ""}${understoodHtml(t.understood)}<div class="top3">${r.top.map(pickHtml).join("")}</div>${coverText(r.coverage)}
-    <div class="cover" style="display:flex;gap:10px;justify-content:center;padding-top:18px"><a class="btn ghost" href="#/compare?ids=${r.top.map(c => encodeURIComponent(c.id)).join(",")}">Сравнить эти отели</a></div></div>`;
+    ${r.top.length > 1 ? `<div class="cover" style="display:flex;gap:10px;justify-content:center;padding-top:18px"><a class="btn ghost" href="#/compare?ids=${r.top.map(c => encodeURIComponent(c.id)).join(",")}">Сравнить эти отели</a></div>` : ""}</div>`;
 }
 function renderThread() {
   const th = $("#thread");

@@ -98,8 +98,10 @@ def test_ask_by_name_puts_the_hotel_first(client, world):
     assert r["mode"] == "search" and r["top"][0]["id"] == h["id"] and r["top"][0]["pinned"]
     assert len(r["top"]) == 1, "только название — случайные «похожие» не нужны"
     assert h["name"] in r["ack"] and r["understood"]["found"]["how"] == "name"
+    assert r["top"][0]["found_only"]
     r = client.post("/api/frog/ask", json={"text": h["name"] + ", тихий номер"}).json()
     assert r["top"][0]["id"] == h["id"] and len(r["top"]) > 1                     # с пожеланиями — он первый, рядом другие
+    assert not r["top"][0].get("found_only")                                       # и для него честно считаются проценты
 
 
 def test_photo_is_recognized_after_cdn_crops_and_screenshots(world, photos):
@@ -121,3 +123,21 @@ def test_ask_with_hotel_photo(client, world, photos, monkeypatch):
     r = client.post("/api/frog/ask", json={"text": "", "image": _data_url(_cover(pic, 828, 560))}).json()
     assert r["mode"] == "search" and r["top"][0]["id"] == hid and r["top"][0]["pinned"]
     assert r["understood"]["found"]["how"] == "photo" and r["ack"].startswith("Ква! Узнала фото")
+    c = r["top"][0]                                   # пожеланий нет — не «0%, скорее не то», а «тот самый»
+    assert c["found_only"] and "в запас" not in c["say"] and c["say"].startswith("Ква! Это ") and "стройка" not in c["say"].lower()
+    s = client.post("/api/frog/say", json={"hotel_id": hid, "text": r["wish"], "parsed": r["parsed"]}).json()
+    assert "в запас" not in s["text"] and s["card"]["found_only"]
+
+
+def test_name_lookup_ignores_case(world):
+    h = db.row("SELECT id, name FROM hotels LIMIT 1")
+    for q in (h["name"].upper(), h["name"].lower(), h["name"].title()):
+        assert identify.by_name(q)["hotels"][:1] == [h["id"]], q
+    db.execute("INSERT INTO catalog(master_id, name, kind) VALUES('9100002', 'Частный дом Тихий дворик', 'COTTAGE')")
+    try:
+        for q in ("частный дом тихий дворик", "ЧАСТНЫЙ ДОМ ТИХИЙ ДВОРИК", "Частный дом «Тихий дворик»"):
+            assert frog.recognize(q, None)["catalog"] == ["9100002"], q                     # тип жилья + название: назван явно
+        assert frog.recognize("тихий дворик и баня", None)["how"] is None                    # а это пожелания
+        assert frog.recognize("отель с видом на закат", None)["how"] is None
+    finally:
+        db.execute("DELETE FROM catalog WHERE master_id='9100002'")

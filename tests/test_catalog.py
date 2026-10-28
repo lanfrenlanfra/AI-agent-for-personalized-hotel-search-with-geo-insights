@@ -159,3 +159,13 @@ def test_place_parsing_and_matching():
     assert near > far * 3 and any("Листвянка" in n for n in notes)
     sc = search.score_hotel({"lat": 51.52, "lon": 104.13}, [], parsed["filters"], [], {})
     assert sc["label"] == "Не подходит" and any(i["feature"] == "place" and i["verdict"] == "no" for i in sc["items"])
+
+
+def test_places_and_kinds_ignore_case_and_script():
+    for q in ("квартира в листвянке", "КВАРТИРА В ЛИСТВЯНКЕ", "Квартира В Листвянке", "apartments in Listvyanka", "FLAT LISTVYANKA"):
+        f = search.parse_query_rules(q)["filters"]
+        assert f.get("kind") == ["apartment"] and f.get("place") == ["listvyanka"], (q, f)
+    assert search.parse_query_rules("ДОМИК НА ОЛЬХОНЕ")["filters"]["place"] == ["olkhon"]
+    assert search.parse_query_rules("Cottage, Khuzhir")["filters"] == {**search.parse_query_rules("Cottage, Khuzhir")["filters"], "kind": ["house"], "place": ["khuzhir"]}
+    assert search.parse_query_rules("Ust-Barguzin")["filters"]["place"] == ["ust_barguzin"]
+    assert "place" not in search.parse_query_rules("lake baikal, quiet room")["filters"]       # «Baikal» — озеро, а не Порт Байкал

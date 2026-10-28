@@ -126,7 +126,9 @@ def by_name(text: str, limit: int = 3) -> dict:
     if hits:
         best = max(h[0] for h in hits)              # «уютная лиса»: «Уютная лиса» (2 слова) точнее, чем «Уютный дом» (1)
         hits = [h for h in hits if h[0] == best]
-    hits.sort(key=lambda h: h[1] != "h")          # сначала изученные
+    q = f" {_norm(text)} "
+    # название целиком в запросе («база отдыха маяк 38») — первым; потом изученные
+    hits.sort(key=lambda h: (f" {_norm(h[3])} " not in q, h[1] != "h"))
     for _, where, key, name in hits[:limit]:
         bucket = out["hotels"] if where == "h" else out["catalog"]
         if key not in bucket:
