@@ -19,6 +19,16 @@ SOURCES = {
 }
 
 
+SIDE_KEYS = {"север": "north", "северо-восток": "northeast", "восток": "east", "юго-восток": "southeast",
+             "юг": "south", "юго-запад": "southwest", "запад": "west", "северо-запад": "northwest"}
+SCOPE_TITLES = {
+    "hotel": "в целом по отелю",
+    "room:north": "окна на север", "room:northeast": "окна на северо-восток", "room:east": "окна на восток", "room:southeast": "окна на юго-восток",
+    "room:south": "окна на юг", "room:southwest": "окна на юго-запад", "room:west": "окна на запад", "room:northwest": "окна на северо-запад",
+    "room:yard": "номера во двор", "room:street": "номера на улицу", "room:water": "номера на воду",
+}
+
+
 @dataclass
 class Obs:
     feature: str

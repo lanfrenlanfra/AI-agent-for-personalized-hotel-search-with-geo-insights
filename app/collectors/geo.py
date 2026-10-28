@@ -15,7 +15,7 @@ from .. import osmtiles
 from ..geo import noise, sun, surroundings, view, walk
 from ..geo.proj import Frame, haversine
 from ..geo.scene import Scene, scene_from_tiles
-from .base import Obs, today
+from .base import SIDE_KEYS, Obs, today
 
 SCENE_RADIUS = 1400.0
 LANDMARKS_FILE = Path(__file__).parent.parent / "features" / "landmarks.yaml"
@@ -64,6 +64,19 @@ def collect(rec: dict, scene: Scene | None = None, osm_day: str | None = None) -
     sunset = view.sunset_analysis(scene, lat, floors)
     obs.append(_o("sunset_view", sunset, min(0.85, q_model * (0.5 + 0.5 * sunset["detail"]["height_coverage"])), day,
                   "3D-модель кварталов OSM + положение солнца на 15-е число каждого месяца; окно видит ±55° от фасада"))
+    sconf = min(0.85, q_model * (0.5 + 0.5 * sunset["detail"]["height_coverage"]))
+    for sd in sunset["detail"]["sides"]:
+        vis = {m: fl for m, fl in sd["by_month"].items() if fl is not None and (floors is None or fl <= floors)}
+        key = SIDE_KEYS.get(sd["side"])
+        if not key:
+            continue
+        if vis:
+            fl0 = min(vis.values())
+            txt = f'Окна на {sd["side"]}: закат виден ' + ("с первого этажа" if fl0 == 1 else f"с {fl0}-го этажа") + f' ({view.month_span(sorted(vis))})'
+        else:
+            txt = f'Окна на {sd["side"]}: закат не виден'
+        obs.append(Obs("sunset_view", {"v": bool(vis), "summary": txt, "detail": {"min_floor": min(vis.values()) if vis else None, "months": sorted(vis), "side": sd["side"]}},
+                       "osm_geo", sconf * 0.95, day, "То же по конкретной стороне здания", [], f"room:{key}"))
     lm = view.landmark_analysis(scene, geo_landmarks(), floors)
     obs.append(_o("landmark_view", lm, min(0.8, q_model * (0.8 if lm.get("far") else 1.0)), day,
                   "Прямая видимость окно → вершина достопримечательности по зданиям на линии взгляда"))
@@ -75,8 +88,18 @@ def collect(rec: dict, scene: Scene | None = None, osm_day: str | None = None) -
     nconf = 0.55 * (1.0 if own_found else 0.75)
     obs.append(Obs("quiet", {"v": nz["median"], "summary": nz["summary"], "detail": {k: nz[k] for k in ("median", "best", "worst", "facades")}},
                    "osm_geo", nconf, day, "Затухание −20·lg(d) от дорог по классу, трамвая, железной дороги, баров и строек; экранирование зданием 12 дБ"))
-    obs.append(Obs("quiet", {"v": nz["best"]["score"], "summary": f'Самые тихие окна — на {nz["best"]["side"]} ({nz["best"]["score"]}/100)', "detail": {"side": nz["best"]["side"], "az": nz["best"]["az"]}},
-                   "osm_geo", nconf, day, "Лучшая из сторон здания по той же модели", [], scope="room:quiet_side"))
+    for fc in nz["facades"]:
+        key = SIDE_KEYS.get(fc["side"])
+        if key:
+            obs.append(Obs("quiet", {"v": fc["score"], "summary": f'Окна на {fc["side"]}: {fc["score"]}/100' + (f', шумит {fc["top"][0]["label"]}' if fc["top"] else ""),
+                                      "detail": {"db": fc["db"], "top": fc["top"]}}, "osm_geo", nconf, day, "Та же модель шума для конкретной стороны", [], f"room:{key}"))
+    obs.append(Obs("quiet", {"v": nz["best"]["score"], "summary": f'Самые тихие окна — на {nz["best"]["side"]} ({nz["best"]["score"]}/100); как правило, это двор',
+                              "detail": {"side": nz["best"]["side"], "az": nz["best"]["az"]}}, "osm_geo", nconf * 0.85, day,
+                   "Лучшая из сторон здания (вероятно, двор)", [], "room:yard"))
+    if nz["worst"]["score"] <= nz["best"]["score"] - 8:
+        obs.append(Obs("quiet", {"v": nz["worst"]["score"], "summary": f'Самые шумные окна — на {nz["worst"]["side"]} ({nz["worst"]["score"]}/100); как правило, это улица',
+                                  "detail": {"side": nz["worst"]["side"], "az": nz["worst"]["az"], "top": nz["worst"]["top"]}}, "osm_geo", nconf * 0.85, day,
+                       "Худшая из сторон здания (вероятно, улица)", [], "room:street"))
 
     ns = surroundings.night_services(scene)
     obs.append(_o("night_services", ns, 0.7 if ns["v"] else 0.45, day, "POI с opening_hours = 24/7 в радиусе 500 м (теги заполнены не везде)"))
