@@ -74,9 +74,22 @@ def top(res: list[dict], n: int = 3, wish: str = "") -> list[dict]:
     return out
 
 
+_SIMPLIFY = [
+    (r"(?i)закат виден из окон на ([\w-]+) с (\w+) этажа", r"окна на \1, с \2 этажа"),
+    (r"(?i)закат виден из окон на ([\w-]+)", r"окна на \1"),
+    (r"(?i)тише всего окна на ([\w-]+)", r"самые тихие окна на \1"),
+    (r"(?i)гости подтверждают", "по отзывам гостей"),
+    (r"(?i)гости опровергают", "по отзывам гостей нет"),
+    (r"(?i)видна вода", "вода видна из окон"),
+    (r"\s+за ночь$", " за ночь"),
+]
+
+
 def _bit(p: dict, n: int = 80) -> str:
     """Первая мысль из технического описания факта: без скобок, цифр-оценок и списка месяцев."""
     t = re.split(r"[;:(]", (p.get("text") or ""), 1)[0].strip().rstrip(".,— ")
+    for rx, rep in _SIMPLIFY:
+        t = re.sub(rx, rep, t)
     return t if len(t) <= n else t[: n - 1].rsplit(" ", 1)[0] + "…"
 
 
@@ -115,3 +128,85 @@ def say(c: dict, wish: str) -> dict:
     if out:
         return {"text": out.strip(), "by": "llm"}
     return {"text": template_say(c, wish), "by": "template"}
+
+
+# ───────────────────────── сравнение по желаниям гостя ─────────────────────────
+
+VERDICT_KIND = {"ok": "yes", "partial": "part", "maybe": "maybe", "no": "no", "disputed": "maybe", "stale": "maybe", "unknown": "unk"}
+
+
+def _cell(i: dict) -> dict:
+    """Одна клетка таблицы: значок и очень короткая фраза «по-лягушачьи»."""
+    v = i["verdict"]
+    t = _bit(i, 44)
+    if v == "unknown":
+        t = "пока не знаю"
+    elif v == "disputed":
+        t = "источники спорят"
+    elif v == "stale":
+        t = "данные устарели, лучше уточнить"
+    elif v == "maybe":
+        t = t or "скорее да, но не уверена"
+    elif v == "no":
+        t = t or "нет"
+    elif v == "ok" and not t:
+        t = "да"
+    if i["feature"] == "price":
+        t = re.sub(r"\s*\(.*", "", i["text"]).replace("От", "от", 1)
+    return {"kind": VERDICT_KIND.get(v, "unk"), "text": t[:1].upper() + t[1:] if t else "", "geo": bool(i.get("computed")), "expected": i.get("expected", 0)}
+
+
+def compare_view(res: list[dict], ids: list[str]) -> dict:
+    by = {r["id"]: r for r in res}
+    picked = [by[i] for i in ids if i in by][:4]
+    if not picked:
+        return {"hotels": [], "rows": []}
+    base = [i for i in picked[0]["items"] if i["feature"] != "text"]
+    rows = []
+    for idx, it in enumerate(base):
+        cells = []
+        for r in picked:
+            items = [x for x in r["items"] if x["feature"] != "text"]
+            cells.append(_cell(items[idx]) if idx < len(items) else {"kind": "unk", "text": "пока не знаю", "geo": False, "expected": 0})
+        good = [c["expected"] for c in cells if c["kind"] in ("yes", "part", "maybe")]
+        best = None
+        if len(good) >= 2 and max(good) > min(good) + 0.04:
+            best = max(range(len(cells)), key=lambda k: cells[k]["expected"] if cells[k]["kind"] in ("yes", "part", "maybe") else -1)
+        rows.append({"title": it["title"], "feature": it["feature"], "cells": [{k: v for k, v in c.items() if k != "expected"} for c in cells], "best": best})
+    cards = [card(r) for r in picked]
+    return {"hotels": [{k: c[k] for k in ("id", "name", "photo", "price", "rating", "reviews", "stars", "address", "url", "score", "label")} for c in cards],
+            "rows": rows, "verdict": compare_verdict(cards), "_cards": cards}
+
+
+def compare_verdict(cards: list[dict]) -> str:
+    if not cards:
+        return ""
+    order = sorted(cards, key=lambda c: -c["score"])
+    w = order[0]
+    pros = ", ".join(p["title"].lower() for p in w["pros"][:3])
+    txt = f"Ква! Больше всего под ваши пожелания подходит «{w['name']}»" + (f": {pros}." if pros else ".")
+    common = set.intersection(*[{a["title"] for a in c["ask"]} for c in cards]) if cards else set()
+    if common:
+        txt += f" Ни про один отель пока не знаю: {', '.join(t.lower() for t in sorted(common))}. Лучше спросить у отелей."
+    for o in order[1:3]:
+        if o["cons"]:
+            txt += f" У «{o['name']}» не сходится: {o['cons'][0]['title'].lower()}."
+        else:
+            own = [a["title"] for a in o["ask"] if a["title"] not in common]
+            if own:
+                txt += f" Про «{o['name']}» не знаю наверняка: {own[0].lower()}."
+    own_w = [a["title"] for a in w["ask"] if a["title"] not in common]
+    if own_w:
+        txt += f" У победителя лучше уточнить: {', '.join(t.lower() for t in own_w[:2])}."
+    return txt
+
+
+def say_compare(cards: list[dict], wish: str, base: str) -> dict:
+    facts = [{"отель": c["name"], "совпадение": c["score"], "подходит": [p["title"] for p in c["pros"]], "не_подходит": [p["title"] for p in c["cons"]],
+              "уточнить": [a["title"] for a in c["ask"]], "цена_от": c["price"]} for c in cards]
+    out = llm.chat([
+        {"role": "system", "content": "Ты — лягушка, дружелюбный агент по отелям Байкала. Сравни отели для гостя в 2–3 коротких предложениях по-русски: "
+                                      "кто лучше подходит под его желания и чем остальные уступают или что в них нужно уточнить. Только факты из данных, ничего не выдумывай, "
+                                      "без списков и эмодзи, можно начать с «Ква!»."},
+        {"role": "user", "content": f"Желание гостя: {wish or 'не указано'}\nОтели: {facts}"}], temperature=0.5, timeout=60) if llm.usable() else None
+    return {"text": out.strip(), "by": "llm"} if out else {"text": base, "by": "template"}

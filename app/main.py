@@ -202,6 +202,33 @@ async def frog_ask(request: Request):
     return ok(out)
 
 
+def _compare_data(d: dict):
+    ids = [str(i) for i in (d.get("ids") or [])][:4]
+    parsed = d.get("parsed") or {}
+    if len(ids) < 2 or not isinstance(parsed.get("intents"), list):
+        return None, "нужны минимум два отеля и ваш запрос"
+    parsed = {**parsed, "text_terms": parsed.get("text_terms") or []}
+    out = frog.compare_view(search.search((d.get("text") or "")[:600], 1000, parsed)["results"], ids)
+    return (out, None) if len(out["hotels"]) >= 2 else (None, "отели не найдены")
+
+
+async def frog_compare(request: Request):
+    """Сравнение 2–4 отелей только по тому, что гость просил (текстом и фото)."""
+    out, e = _compare_data(await body(request))
+    if e:
+        return err(e, 400)
+    out.pop("_cards")
+    return ok(out)
+
+
+async def frog_compare_say(request: Request):
+    d = await body(request)
+    out, e = _compare_data(d)
+    if e:
+        return err(e, 400)
+    return ok(await run_in_threadpool(frog.say_compare, out["_cards"], (d.get("text") or "")[:600], out["verdict"]))
+
+
 _say_cache: dict[str, dict] = {}
 
 
@@ -477,6 +504,8 @@ routes = [
     Route("/api/search", api_search, methods=["GET", "POST"]),
     Route("/api/frog/ask", frog_ask, methods=["POST"]),
     Route("/api/frog/say", frog_say, methods=["POST"]),
+    Route("/api/frog/compare", frog_compare, methods=["POST"]),
+    Route("/api/frog/compare/say", frog_compare_say, methods=["POST"]),
     Route("/api/jobs", api_jobs),
     Route("/api/parse", api_parse),
     Route("/api/compare", api_compare),

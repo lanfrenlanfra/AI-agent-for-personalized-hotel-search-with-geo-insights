@@ -129,3 +129,16 @@ def test_frog_image_not_read(client, monkeypatch):
     monkeypatch.setattr(llm, "chat", lambda *a, **k: None)
     r = client.post("/api/frog/ask", json={"text": "тихо", "image": "data:image/jpeg;base64,/9j/4AAQ"}).json()
     assert r["understood"]["image_given"] and not r["understood"]["image_read"] and r["top"]
+
+
+def test_frog_compare_only_requested(client):
+    r = client.post("/api/frog/ask", json={"text": "тихий номер с видом на закат"}).json()
+    ids = [t["id"] for t in r["top"]][:3]
+    c = client.post("/api/frog/compare", json={"ids": ids, "text": "тихий номер с видом на закат", "parsed": r["parsed"]}).json()
+    asked = {i["title"] for i in r["parsed"]["intents"]}
+    assert {row["title"] for row in c["rows"]} == asked          # ровно то, что просил гость
+    assert len(c["hotels"]) == len(ids) and c["verdict"].startswith("Ква!")
+    assert all(len(row["cells"]) == len(ids) and all(x["kind"] in ("yes", "part", "maybe", "no", "unk") for x in row["cells"]) for row in c["rows"])
+    s = client.post("/api/frog/compare/say", json={"ids": ids, "text": "x", "parsed": r["parsed"]}).json()
+    assert s["text"] and s["by"] in ("llm", "template")
+    assert client.post("/api/frog/compare", json={"ids": ids[:1], "parsed": r["parsed"]}).status_code == 400

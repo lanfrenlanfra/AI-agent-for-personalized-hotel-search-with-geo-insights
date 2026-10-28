@@ -282,3 +282,36 @@ th { font-weight: 600; background: var(--ice2); border-top: 0; }
   .ask-card { padding: 10px 10px 10px 14px; border-radius: 20px; }
   .go { margin-left: auto; }
 }
+
+/* ───────── сравнение по желаниям ───────── */
+.cmp-page { max-width: 1100px; margin: 0 auto; padding-bottom: 30px; }
+.cmp-top { display: grid; gap: 12px; justify-items: center; text-align: center; padding: 8px 0 14px; }
+.cmp-top .mascot { width: 72px; }
+.cmp-top h1 { font: 500 clamp(22px, 3vw, 30px)/1.15 var(--f-disp); color: var(--forest); max-width: none; }
+.cmp-top .chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; align-items: center; }
+.cmp-top .chip { padding: 4px 12px; font-size: 13.5px; }
+.say.big { max-width: 780px; margin: 0 auto 22px; }
+.say.big .bubble { font-size: 16.5px; }
+.cmp-scroll { overflow-x: auto; padding: 4px 2px 12px; margin: 0 -2px; }
+.cmp-grid { display: grid; grid-template-columns: 130px repeat(var(--n), minmax(190px, 1fr)); gap: 10px; min-width: calc(130px + var(--n) * 200px); align-items: stretch; }
+.cmp-grid .hh { display: grid; gap: 6px; align-content: start; }
+.cmp-grid .hh .ph { aspect-ratio: 4 / 3; border-radius: 18px; background: #d9ecc0 center / cover; position: relative; display: grid; place-items: center; color: #ffffffc0; font: 300 34px var(--f-disp); }
+.cmp-grid .hh .rank { position: absolute; left: 10px; top: 10px; width: 30px; height: 30px; border-radius: 50%; background: var(--lime); color: var(--forest); font: 600 15px/30px var(--f-disp); text-align: center; box-shadow: 0 3px 10px #0f3d2a40; }
+.cmp-grid h2 { font: 600 16px/1.25 var(--f-disp); margin: 2px 0 0; }
+.cmp-grid h2 a { color: var(--forest); text-decoration: none; } .cmp-grid h2 a:hover { text-decoration: underline; }
+.cmp-grid .small { font-size: 13px; }
+.cmp-grid .match { font-size: 13px; gap: 8px; } .cmp-grid .match .tr { flex: 1; height: 6px; }
+.cmp-grid .lab { font-weight: 600; color: var(--forest); font-size: 14.5px; align-self: center; padding: 6px 4px 6px 2px; }
+.cc { display: flex; gap: 10px; align-items: flex-start; background: var(--ice2); border-radius: 14px; padding: 11px 13px; font-size: 14.5px; line-height: 1.35; min-height: 52px; }
+.cc .ic { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 13px; background: #fff; }
+.cc-yes .ic { background: var(--lime); color: var(--forest); }
+.cc-part .ic, .cc-maybe .ic { background: #f6edb8; color: #6c5a05; }
+.cc-no { background: var(--bad-t); } .cc-no .ic { background: #f2c4bd; color: #8f3128; }
+.cc-unk { color: var(--ink2); } .cc-unk .ic { color: var(--ink2); box-shadow: inset 0 0 0 1.5px var(--line); }
+.cc.best { background: var(--lime-t); box-shadow: inset 0 0 0 2px var(--lime-d); }
+.cc .star { display: block; font-size: 11.5px; font-weight: 600; color: var(--sun-d); letter-spacing: .02em; }
+.cc .geo { font-style: normal; opacity: .6; }
+.cmp-grid .ft { display: grid; gap: 6px; align-content: start; }
+.cmp-grid .ft .btn { justify-content: center; font-size: 13.5px; padding: 8px 12px; }
+.corner { min-height: 1px; }
+@media (max-width: 760px) { .cmp-grid { grid-template-columns: 96px repeat(var(--n), minmax(170px, 1fr)); min-width: calc(96px + var(--n) * 180px); } .cmp-grid .lab { font-size: 13px; } }

@@ -205,6 +205,7 @@ async function pageFrog() {
       const r = await api("/api/frog/ask", { body: { text, image } });
       const st = { text, image, data: r, understood: r.understood };
       frogState = st;
+      try { sessionStorage.setItem("frog_ctx", JSON.stringify({ text, parsed: r.parsed, image, understood: r.understood })); } catch {}
       $(".mascot", fh).classList.remove("hop"); $("h1", fh).textContent = "Вот что я нашла"; go.disabled = false;
       renderOut(st); pollFrog(st);
       out.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -496,15 +497,40 @@ async function drawBuildingsMap(h) {
 }
 
 /* ───────── сравнение ───────── */
+function cmpCtx() {
+  if (frogState) return { text: frogState.text, parsed: frogState.data.parsed, image: frogState.image, understood: frogState.understood };
+  if (lastSearch && lastSearch.res) return { text: lastSearch.q, parsed: lastSearch.res.parsed };
+  try { return JSON.parse(sessionStorage.getItem("frog_ctx")); } catch { return null; }
+}
+const CK = { yes: "✓", part: "◐", maybe: "≈", no: "✕", unk: "?" };
 async function pageCompare(ids) {
   const list = ids.split(",").filter(Boolean).map(decodeURIComponent);
-  if (list.length < 2) { main.innerHTML = '<div class="crumbs"><a href="#/">← К поиску</a></div><div class="empty">Выберите в поиске минимум два отеля и нажмите «Сравнить».</div>'; return; }
-  const r = await api("/api/compare?ids=" + list.map(encodeURIComponent).join(","));
-  const cell = (c, best) => !c ? '<span class="muted">нет данных</span>' : `${cert(c.status)} ${esc(c.summary || String(c.value))} <span class="age">${Math.round(c.confidence * 100)}%${c.age_days != null ? " · " + ageText(c.age_days) : ""}</span>`;
-  main.innerHTML = `<div class="crumbs"><a href="#/">← К поиску</a></div><h2>Сравнение</h2>
-  <p class="muted">Сверху — характеристики, по которым отели различаются. Зелёным выделено лучшее значение.</p>
-  <section class="blk" style="padding:0;overflow:auto"><table><thead><tr><th>Характеристика</th>${r.names.map((n, i) => `<th><a href="#/hotel/${encodeURIComponent(r.hotels[i])}">${esc(n)}</a></th>`).join("")}</tr></thead><tbody>
-  ${r.rows.map(row => `<tr><td><b>${esc(row.title)}</b>${row.differs ? "" : ' <span class="pill">одинаково</span>'}</td>${row.cells.map((c, i) => `<td class="${row.best === i ? "cell-best" : ""}">${cell(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></section>`;
+  const back = '<div class="crumbs"><a href="#/">← К результатам</a></div>';
+  const ctx = cmpCtx();
+  if (list.length < 2) { main.innerHTML = back + '<div class="empty">Выберите минимум два отеля, чтобы сравнить.</div>'; return; }
+  if (!ctx || !ctx.parsed || !((ctx.parsed.intents || []).length || Object.keys(ctx.parsed.filters || {}).length)) {
+    main.innerHTML = back + '<div class="empty">Я сравниваю отели по вашим пожеланиям. Расскажите, что вам нужно, на главной, и я сравню найденные варианты.<br><br><a class="btn" href="#/">Рассказать лягушке</a></div>'; return;
+  }
+  const body = { ids: list, text: ctx.text || "", parsed: ctx.parsed };
+  const r = await api("/api/frog/compare", { body });
+  const n = r.hotels.length;
+  const crit = (ctx.parsed.intents || []).map(i => `<span class="chip">${esc(i.title)}</span>`).join("") + filterChips(ctx.parsed.filters || {}).map(([, t]) => `<span class="chip flt">${esc(t)}</span>`).join("");
+  main.innerHTML = `<section class="cmp-page">${back}
+    <div class="cmp-top">${MASCOT()}<h1>Сравниваю по вашим пожеланиям</h1>
+      <div class="chips">${crit}${ctx.image ? `<span class="thumb"><img src="${ctx.image}" alt="Ваш референс"><span>ваше фото</span></span>` : ""}</div></div>
+    <div class="say big"><div class="av" aria-hidden="true">${FROG_MINI}</div><div class="bubble${META && META.llm_state && META.llm_state !== "off" ? " wait" : ""}" id="cvs">${esc(r.verdict)}</div></div>
+    <div class="cmp-scroll"><div class="cmp-grid" style="--n:${n}">
+      <div class="corner"></div>
+      ${r.hotels.map((h, i) => `<div class="hh"><a class="ph" href="#/hotel/${encodeURIComponent(h.id)}" ${photoBox(h)}><span class="rank">${i + 1}</span>${h.photo ? "" : initials(h.name)}</a>
+        <h2><a href="#/hotel/${encodeURIComponent(h.id)}">${esc(h.name)}</a></h2>
+        <div class="muted small">${[h.price ? "от " + money(h.price) : "", h.rating ? "оценка " + rate(h.rating) : ""].filter(Boolean).join(" · ")}</div>
+        <div class="match"><div class="tr"><i style="width:${Math.max(4, h.score)}%"></i></div><b>${h.score}%</b></div></div>`).join("")}
+      ${r.rows.map(row => `<div class="lab">${esc(row.title)}</div>${row.cells.map((c, i) => `<div class="cc cc-${c.kind}${row.best === i ? " best" : ""}"><span class="ic" aria-hidden="true">${CK[c.kind]}</span><span>${esc(c.text)}${c.geo && c.kind === "yes" ? ' <i class="geo" title="посчитано по координатам и карте">◎</i>' : ""}${row.best === i ? ' <b class="star">лучше всех</b>' : ""}</span></div>`).join("")}`).join("")}
+      <div class="corner"></div>${r.hotels.map(h => `<div class="ft"><a class="btn ghost" href="#/hotel/${encodeURIComponent(h.id)}">Откуда это известно</a>${h.url ? `<a class="btn" href="${esc(h.url)}" target="_blank" rel="noopener">На Островке ↗</a>` : ""}</div>`).join("")}
+    </div></div></section>`;
+  if (META && META.llm_state && META.llm_state !== "off") {
+    api("/api/frog/compare/say", { body }).then(a => { const e = $("#cvs"); if (e) { e.textContent = a.text; e.classList.remove("wait"); } }).catch(() => { const e = $("#cvs"); if (e) e.classList.remove("wait"); });
+  }
 }
 
 /* ───────── кабинет отельера ───────── */
