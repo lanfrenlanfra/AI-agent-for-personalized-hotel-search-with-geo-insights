@@ -178,7 +178,7 @@ async function pageFrog() {
     <p class="sub">Расскажите своими словами, можно приложить фото-референс. Я подберу три отеля и проверю их по карте.</p>
     <form class="ask-card" id="af">
       <label for="q" style="position:absolute;left:-999px">Опишите, какой отель вы ищете</label>
-      <textarea id="q" rows="3" maxlength="600" placeholder="Например: тихий номер с видом на закат, рядом с берегом, зимой, с баней">${esc(st0 ? st0.text : "")}</textarea>
+      <textarea id="q" rows="1" maxlength="600" placeholder="Например: тихий номер с видом на закат, рядом с берегом, зимой, с баней">${esc(st0 ? st0.text : "")}</textarea>
       <div class="ask-row">
         <button type="button" class="attach" id="pick">${CAM}<span>Фото-референс</span></button><input type="file" id="file" accept="image/*" hidden>
         <span id="thumb"></span><span class="grow"></span>
@@ -192,7 +192,9 @@ async function pageFrog() {
   showThumb();
   $("#pick").onclick = () => $("#file").click();
   $("#file").onchange = async e => { const f = e.target.files[0]; if (!f) return; try { image = await fitImage(f); showThumb(); } catch (err) { toast(err.message); } e.target.value = ""; };
-  $$(".ex").forEach(b => b.onclick = () => { $("#q").value = b.textContent; $("#q").focus(); });
+  const grow = () => { const t = $("#q"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 200) + "px"; };
+  $("#q").addEventListener("input", grow); grow();
+  $$(".ex").forEach(b => b.onclick = () => { $("#q").value = b.textContent; grow(); $("#q").focus(); });
   $("#q").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#af").requestSubmit(); } });
   $("#af").onsubmit = async e => {
     e.preventDefault();
