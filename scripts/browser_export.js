@@ -37,7 +37,7 @@
         try { api = JSON.parse(await getText(`/hotel/search/v1/site/ost_reviews?master_id=${id}&lang=ru`)); } catch (e) { console.warn("отзывы", id, e.message); }
         out.push({
           slug: it.id, region,
-          page: { hotel: pp.hotel, reviews: pp.reviews, hotelRegionData: pp.hotelRegionData },
+          page: { hotel: pp.hotel, reviews: pp.reviews, hotelRegionData: pp.hotelRegionData, datelessRate: pp.datelessRate },
           serp: { datelessRate: it.datelessRate, datefullRate: it.datefullRate, stars: it.stars, nearestBeaches: it.nearestBeaches },
           api_reviews: api,
         });

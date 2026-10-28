@@ -89,10 +89,15 @@ def build_record(page: dict, slug: str, region: str, url: str, serp: dict | None
     facts = h.get("facts") or {}
     s = serp or {}
     price = None
-    for k in ("datelessRate", "datefullRate"):
-        v = s.get(k)
-        if isinstance(v, dict) and v.get("amount"):
-            price = v["amount"]
+    for src in (s, page):                       # цена «от»: из каталога, а если её нет — со страницы отеля (там поле price)
+        for k in ("datefullRate", "datelessRate"):
+            v = src.get(k)
+            if isinstance(v, dict):
+                amount = v.get("amount") or v.get("price")
+                if amount:
+                    price = float(amount)
+                    break
+        if price:
             break
     return {
         "schema": 1,

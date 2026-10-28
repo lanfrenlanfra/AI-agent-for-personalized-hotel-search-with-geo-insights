@@ -40,3 +40,9 @@ def test_build_record():
 def test_normalize_api_review_snake_case():
     r = ostrovok.normalize_review({"id": 1, "review_date": "2025-01-02", "review_plus": "+", "review_minus": "-", "review_text": "t", "rating": 8, "wifi_quality": "Good"})
     assert r["date"] == "2025-01-02" and r["wifi_quality"] == "good"
+
+
+def test_price_from_page_when_no_catalog_item():
+    page = {**PAGE, "datelessRate": {"currencyCode": "RUB", "price": 1869}}
+    assert ostrovok.build_record(page, "x", "r", "u")["price_from"] == 1869
+    assert ostrovok.build_record(page, "x", "r", "u", {"datelessRate": {"amount": 2500}})["price_from"] == 2500
