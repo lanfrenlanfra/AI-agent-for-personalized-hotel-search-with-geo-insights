@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from . import db, llm, ostrovok, registry
+from . import db, llm, ostrovok, places, registry
 from .collectors.base import SCOPE_TITLES, today
 from .collectors.geo import geo_landmarks
 
@@ -32,6 +32,47 @@ MONTHS = [("январ", 1), ("феврал", 2), ("март", 3), ("апрел"
           ("сентябр", 9), ("октябр", 10), ("ноябр", 11), ("декабр", 12)]
 SEASONS = {"зимой": [12, 1, 2], "весной": [3, 4, 5], "летом": [6, 7, 8], "осенью": [9, 10, 11]}
 MONTH_TITLES = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+
+# Тип размещения: слово в запросе → группа → коды типа Островка (поле kind в каталоге и карточке).
+# Порядок важен: «гостевой дом» проверяется раньше «дома».
+KINDS: dict[str, dict] = {
+    "guesthouse": {"title": "Гостевой дом", "codes": {"GUESTHOUSE", "BNB"},
+                   "rx": r"гостев\w*\s+дом\w*|гестхаус\w*|гест-хаус\w*"},
+    "apartment": {"title": "Квартира / апартаменты", "codes": {"APARTMENT", "APART_HOTEL"},
+                  "rx": r"квартир\w*|апартамент\w*|апарт-отел\w*|апарт\b|посуточн\w*|однушк\w*|двушк\w*|студи[яюи]\b"},
+    "house": {"title": "Дом / коттедж", "codes": {"COTTAGE", "VILLA_AND_BUNGALOWS"},
+              "rx": r"коттедж\w*|домик\w*|(?:целый|целого|отдельн\w*|частн\w*|деревянн\w*)\s+дом\w*|дом\w*\s+целиком|вилл[аыуе]\b|бунгало|шале|таунхаус\w*"},
+    "hostel": {"title": "Хостел", "codes": {"HOSTEL"}, "rx": r"хостел\w*"},
+    "camping": {"title": "Кемпинг / глэмпинг", "codes": {"CAMPING", "GLAMPING"}, "rx": r"кемпинг\w*|гл[эе]мпинг\w*|палатк\w*"},   # «база отдыха» на Островке бывает любого типа — не фильтруем
+    "sanatorium": {"title": "Санаторий", "codes": {"SANATORIUM", "RESORT"}, "rx": r"санатори\w*|профилактори\w*"},
+}
+KIND_NAMES = {"HOTEL": "отель", "MINI_HOTEL": "мини-отель", "BOUTIQUE": "бутик-отель", "GUESTHOUSE": "гостевой дом", "BNB": "гостевой дом",
+              "APARTMENT": "квартира", "APART_HOTEL": "апарт-отель", "COTTAGE": "коттедж", "VILLA_AND_BUNGALOWS": "вилла или бунгало",
+              "HOSTEL": "хостел", "CAMPING": "кемпинг", "GLAMPING": "глэмпинг", "SANATORIUM": "санаторий", "RESORT": "курорт"}
+
+
+def kind_codes(kinds: list[str] | None) -> set[str]:
+    return set().union(*(KINDS[k]["codes"] for k in (kinds or []) if k in KINDS)) if kinds else set()
+
+
+def kind_title(kinds: list[str] | None) -> str:
+    return " или ".join(KINDS[k]["title"].lower() for k in (kinds or []) if k in KINDS)
+
+
+def find_kinds(text: str) -> tuple[list[str], list[tuple[int, int]]]:
+    """Какой тип жилья просит гость: ([группы], [занятые куски текста]). «Не хостел» и «без палаток» не считаются."""
+    kinds: list[str] = []
+    spans: list[tuple[int, int]] = []
+    for key, spec in KINDS.items():
+        for m in re.finditer(r"(?<![\w-])(?:" + spec["rx"] + r")", text):
+            if any(not (m.end() <= a or m.start() >= b) for a, b in spans):
+                continue
+            spans.append((m.start(), m.end()))
+            if re.search(r"(?:\bне|\bбез)\s+$", text[max(0, m.start() - 6):m.start()]):
+                continue
+            if key not in kinds:
+                kinds.append(key)
+    return kinds, spans
 
 
 def norm(s: str) -> str:
@@ -61,6 +102,17 @@ def parse_query_rules(q: str) -> dict:
         return all(b <= x or a >= y for x, y in taken)
 
     found: dict[str, dict] = {}
+    # 0) тип жилья и посёлок — раньше характеристик, чтобы «Малое Море» не стало «рядом с морем»
+    pre_filters: dict = {}
+    kinds, kspans = find_kinds(text)
+    if kinds:
+        pre_filters["kind"] = kinds
+    where, pspans = places.find_places(text)
+    if where:
+        pre_filters["place"] = where
+        pre_filters["place_title"] = places.title(where)          # для плашки «Я поняла так» и фраз лягушки
+        pre_filters["place_where"] = places.title(where, where=True)
+    taken += kspans + pspans
     # 1) достопримечательности по названию
     for lm in geo_landmarks():
         for syn in [lm["name"]] + lm.get("synonyms", []):
@@ -145,6 +197,7 @@ def parse_query_rules(q: str) -> dict:
     ms_ = re.search(r"(\d)\s*(?:\+\s*)?(?:звезд|\*)", text)
     if ms_:
         filters["stars_min"] = int(ms_.group(1))
+    filters.update(pre_filters)
     for it in found.values():
         spec = feats[it["feature"]]
         it["weight"] = round(0.6 + 0.8 * min(1.0, spec.get("importance", 0.3) + 0.2), 2)
@@ -202,6 +255,8 @@ def parse_query(q: str, use_llm: bool = True) -> dict:
     ll = parse_query_llm(q) if use_llm and llm.state() != "loading" else None   # модель ещё грузится: не ждём её, разбираем правилами
     if ll:
         ll["text_terms"] = rules["text_terms"]
+        for k in ("kind", "place", "place_title", "place_where"):        # тип жилья и посёлок — только по справочникам, не по фантазии модели
+            ll["filters"].pop(k, None)
         for k, v in rules["filters"].items():
             ll["filters"].setdefault(k, v)
         return ll
@@ -329,6 +384,22 @@ def score_hotel(hotel: dict, intents: list[dict], filters: dict, terms: list[str
         ok = (hotel["stars"] or 0) >= filters["stars_min"]
         extra.append({"feature": "stars", "title": f'От {filters["stars_min"]}★', "weight": 0.8, "verdict": "ok" if ok else "no", "match": 1.0 if ok else 0.0,
                       "expected": 1.0 if ok else 0.0, "text": f'{hotel["stars"]}★', "status": "confirmed", "confidence": 0.7, "age_days": None, "scope": None, "scope_title": None})
+    hard_miss = False
+    if filters.get("kind") and hotel.get("kind"):
+        code = str(hotel["kind"]).upper()
+        ok = code in kind_codes(filters["kind"])
+        hard_miss = not ok
+        extra.append({"feature": "kind", "title": kind_title(filters["kind"]).capitalize(), "weight": 1.5, "verdict": "ok" if ok else "no", "match": 1.0 if ok else 0.0,
+                      "expected": 1.0 if ok else 0.0, "text": f"Это {KIND_NAMES.get(code, code.lower())} (по данным Островка)", "status": "confirmed", "confidence": 0.9,
+                      "age_days": None, "scope": None, "scope_title": None})
+    if filters.get("place"):
+        inside = places.matches(filters["place"], hotel.get("place"), hotel.get("lat"), hotel.get("lon"))
+        if inside is not None:
+            hard_miss = hard_miss or not inside
+            extra.append({"feature": "place", "title": filters.get("place_title") or places.title(filters["place"]), "weight": 1.5,
+                          "verdict": "ok" if inside else "no", "match": 1.0 if inside else 0.0, "expected": 1.0 if inside else 0.0,
+                          "text": "По адресу и координатам Островка" if inside else (hotel.get("address") or "Другое место на Байкале"),
+                          "status": "confirmed", "confidence": 0.9, "age_days": None, "scope": None, "scope_title": None})
     items += extra
     text_bonus = 0.0
     if terms:
@@ -341,12 +412,14 @@ def score_hotel(hotel: dict, intents: list[dict], filters: dict, terms: list[str
     wsum = sum(i["weight"] for i in items) or 1.0
     score = sum(i["weight"] * i["expected"] for i in items) / wsum
     score = min(1.0, score + text_bonus)
+    if hard_miss:
+        score *= 0.3          # гость просил квартиру или Листвянку — отель с баней в другом посёлке это не заменит
     pro = [i for i in items if i["verdict"] == "ok"]
     con = [i for i in items if i["verdict"] in ("no", "partial")]
     unk = [i for i in items if i["verdict"] in ("unknown", "maybe", "disputed", "stale")]
     if not intents and not filters:
         label = "—"
-    elif con and not pro:
+    elif hard_miss or (con and not pro):
         label = "Не подходит"
     elif con:
         label = "Частично"
@@ -397,6 +470,7 @@ def hotel_row(r) -> dict:
     first = (photos.get("images") or [None])[0]
     d["photo"] = ostrovok.photo_url(first, "card") if first and first.startswith("/t/") else first
     d["description"] = flatten_description(card.get("description"))
+    d["kind"] = card.get("kind")
     return d
 
 
@@ -404,8 +478,12 @@ def search(q: str, limit: int = 30, parsed: dict | None = None) -> dict:
     parsed = parsed or parse_query(q)
     facts = load_facts()
     res = []
+    kinds = {r["master_id"]: r["kind"] for r in db.rows("SELECT master_id, kind FROM catalog WHERE kind IS NOT NULL")} if (parsed.get("filters") or {}).get("kind") else {}
     for r in db.rows("SELECT * FROM hotels"):
         h = hotel_row(r)
+        h["kind"] = h.get("kind") or kinds.get(h.get("master_id"))
+        if (parsed.get("filters") or {}).get("place"):
+            h["place"] = places.place_of(h.get("master_id"))
         sc = score_hotel(h, parsed["intents"], parsed["filters"], parsed["text_terms"], facts.get(h["id"], {}))
         known = [i for i in sc["items"] if i["status"] != "unknown" and i["feature"] != "text"]
         res.append({"id": h["id"], "name": h["name"], "stars": h["stars"], "rating": h["rating"], "reviews": h["reviews_count"], "price_from": h["price_from"],

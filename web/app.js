@@ -167,10 +167,20 @@ function turnHtml(t, i, isLast) {
   }
   const r = t.data;
   if (!isLast) {
+    if (!r.top.length) return `<div data-t="${i}">${BUBBLE("Ква! Тут подходящего жилья я тогда не нашла.")}</div>`;
     const names = r.top.map((c, k) => `<a href="#/hotel/${encodeURIComponent(c.id)}">${k + 1}. ${esc(c.name)} <span class="muted">${c.score}%</span></a>`).join("");
     return `<div data-t="${i}">${BUBBLE(`${esc(t.ack || "Ква! Вот что нашла.")}<span class="past">${names}</span>`)}</div>`;
   }
-  if (!r.top.length) return `<div data-t="${i}">${BUBBLE("Ничего подходящего не нашлось. Попробуйте описать иначе.")}</div>`;
+  if (!r.top.length) {
+    const cov = r.coverage || {}, cs = cov.candidates || [], fl = (r.parsed && r.parsed.filters) || {};
+    const what = [kindTitle(fl), fl.place_where].filter(Boolean).join(" ") || "подходящее жильё";   // «квартира / апартаменты в Листвянке»
+    const What = what[0].toUpperCase() + what.slice(1);
+    if (!cs.length) return `<div data-t="${i}">${understoodHtml(t.understood)}${BUBBLE(`Ква! ${What}: под такие пожелания я ничего не нашла. Попробуйте смягчить условия, выбрать другой тип жилья или соседний посёлок.`)}</div>`;
+    const busy = cov.enabled && cov.pending > 0;
+    const say = `Ква! ${What}: подробно проверенных вариантов у меня пока нет, но в каталоге Островка нашла ${cs.length} ${plural(cs.length, "вариант", "варианта", "вариантов")}. `
+      + (busy ? "Уже изучаю их по карте и отзывам, тройка появится здесь сама через минуту-другую." : "Ниже они по данным каталога: цена и оценка, без проверки по карте.");
+    return `<div data-t="${i}">${t.ack ? BUBBLE(esc(t.ack)) : ""}${understoodHtml(t.understood)}${BUBBLE(esc(say))}${coverText(cov)}${candidatesHtml(cov)}</div>`;
+  }
   return `<div data-t="${i}">${t.ack ? BUBBLE(esc(t.ack)) : ""}${understoodHtml(t.understood)}<div class="top3">${r.top.map(pickHtml).join("")}</div>${coverText(r.coverage)}
     <div class="cover" style="display:flex;gap:10px;justify-content:center;padding-top:18px"><a class="btn ghost" href="#/compare?ids=${r.top.map(c => encodeURIComponent(c.id)).join(",")}">Сравнить эти отели</a></div></div>`;
 }
@@ -186,14 +196,14 @@ let frogPoll = null;
 function pollFrog(st, n = 0) {
   clearTimeout(frogPoll);
   const cov = st.data.coverage || {};
-  if (!(cov.pending > 0 && cov.enabled) || n >= 10) return;
+  if (!(cov.pending > 0 && cov.enabled) || n >= (st.data.top.length ? 10 : 40)) return;   // тройки ещё нет — ждём дольше (до ~5 минут)
   frogPoll = setTimeout(async () => {
     if (lastSearch() !== st || !$("#thread")) return;
     try {
       const r = await api("/api/frog/ask", { body: { text: st.text, parsed: st.data.parsed, passive: true } });
       const changed = JSON.stringify(r.top.map(c => [c.id, c.score])) !== JSON.stringify(st.data.top.map(c => [c.id, c.score]));
       st.data = { ...r, parsed: st.data.parsed };
-      if (changed) { renderThread(); saveChat(); } else { const cv = $(".cover[role=status]"); if (cv) cv.outerHTML = coverText(r.coverage); }
+      if (changed || !r.top.length) { renderThread(); saveChat(); } else { const cv = $(".cover[role=status]"); if (cv) cv.outerHTML = coverText(r.coverage); }
     } catch {}
     pollFrog(st, n + 1);
   }, 7000);
@@ -290,8 +300,13 @@ function intentLabel(it) {
   if (it.kind === "bool" && it.want === false) s = "Без: " + s.toLowerCase();
   return s;
 }
+const KIND_TITLES = { apartment: "квартира / апартаменты", house: "дом / коттедж", guesthouse: "гостевой дом", hostel: "хостел", camping: "кемпинг / глэмпинг", sanatorium: "санаторий" };
+function kindTitle(f) { return (f.kind || []).map(k => KIND_TITLES[k]).filter(Boolean).join(" или "); }
+function plural(n, one, few, many) { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; }
 function filterChips(f) {
   const out = [];
+  if (f.kind && f.kind.length) out.push(["kind", kindTitle(f)]);
+  if (f.place && f.place.length && f.place_title) out.push(["place", f.place_title]);
   if (f.price_max) out.push(["price_max", `до ${money(f.price_max)}`]);
   if (f.stars_min) out.push(["stars_min", `от ${f.stars_min}★`]);
   return out;
@@ -344,7 +359,7 @@ function renderCrit(parsed, q) {
     + filterChips(parsed.filters).map(([k, t]) => `<span class="chip flt">${esc(t)}<button data-f="${k}" aria-label="Убрать фильтр">×</button></span>`).join("")
     + (parsed.parsed_by === "llm" ? '<span class="pill">разобрано LLM</span>' : "");
   $$("button[data-i]", c).forEach(b => b.onclick = () => { const ints = parsed.intents.filter((_, i) => i !== +b.dataset.i); runSearch(q, { intents: ints, filters: parsed.filters }); });
-  $$("button[data-f]", c).forEach(b => b.onclick = () => { const f = { ...parsed.filters }; delete f[b.dataset.f]; runSearch(q, { intents: parsed.intents, filters: f }); });
+  $$("button[data-f]", c).forEach(b => b.onclick = () => { const f = { ...parsed.filters }; delete f[b.dataset.f]; if (b.dataset.f === "place") { delete f.place_title; delete f.place_where; } runSearch(q, { intents: parsed.intents, filters: f }); });
 }
 function coverageHtml(cov, shown) {
   if (!cov || !cov.total) return "";

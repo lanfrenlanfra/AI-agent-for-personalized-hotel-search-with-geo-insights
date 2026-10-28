@@ -177,6 +177,20 @@ def coarse_score(parsed: dict, r: dict) -> tuple[float, list[str]]:
         notes.append(f"дороже {int(flt['price_max'])} ₽ (от {int(r['price'])} ₽)")
     if flt.get("stars_min") and (r.get("stars") or 0) < flt["stars_min"]:
         score *= 0.4
+    if flt.get("kind"):
+        from .search import KIND_NAMES, kind_codes      # поздний импорт: каталог не должен тянуть геомодули поиска при загрузке
+        code = (r.get("kind") or "").upper()
+        if code in kind_codes(flt["kind"]):
+            notes.append(f"тип: {KIND_NAMES.get(code, code.lower())}")
+        else:
+            score *= 0.1                                 # в очередь на проверку ставим жильё того типа, что просили
+    if flt.get("place"):
+        from . import places
+        inside = places.matches(flt["place"], places.place_of(r.get("master_id")), r.get("lat"), r.get("lon"))
+        if inside:
+            notes.append(f"место: {flt.get('place_title') or places.title(flt['place'])}")
+        elif inside is False:
+            score *= 0.1                                 # и в том посёлке, что просили
     return round(score, 3), notes
 
 

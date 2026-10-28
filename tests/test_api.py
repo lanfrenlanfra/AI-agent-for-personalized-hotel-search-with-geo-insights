@@ -195,3 +195,15 @@ def test_frog_followup_merges_wishes(client):
     assert r2["ack"] and "бассейн" in r2["ack"].lower()
     r3 = client.post("/api/frog/ask", json={"text": "давай заново: хочу номер с баней", "wish": r2["wish"]}).json()
     assert {i["title"] for i in r3["parsed"]["intents"]} == {"Баня или сауна"}   # сброс: прежнее забыто
+
+
+def test_frog_apartment_is_a_search_not_vague(client):
+    """«Хочу квартиру» — это уже пожелание (тип жилья), а не повод переспрашивать."""
+    for t in ("хочу квартиру", "апартаменты в Листвянке", "студия посуточно"):
+        r = _ask(client, t)
+        assert r["mode"] == "search", (t, r)
+        assert r["parsed"]["filters"]["kind"] == ["apartment"]
+    # в синтетическом мире только отели: отель вместо квартиры не подставляем
+    assert _ask(client, "хочу квартиру")["top"] == []
+    r = _ask(client, "тихий отель")
+    assert r["top"] and "kind" not in r["parsed"]["filters"]

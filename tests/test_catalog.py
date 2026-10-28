@@ -118,3 +118,44 @@ def test_hourly_cap(lab, monkeypatch):
     monkeypatch.setattr(settings, "enrich_max_per_hour", 0)
     enrich.queue(["1", "2"])
     assert enrich.process_queue() == {"done": 0, "failed": 0}
+
+
+def test_kind_parsing_and_filter():
+    p = search.parse_query_rules("квартира или коттедж с баней до 5000")
+    assert p["filters"]["kind"] == ["apartment", "house"] and p["filters"]["price_max"] == 5000
+    assert any(i["feature"] == "banya_sauna" for i in p["intents"]) and "квартира" not in p["text_terms"]
+    assert search.parse_query_rules("гостевой дом у озера")["filters"]["kind"] == ["guesthouse"]   # не «дом/коттедж»
+    assert "kind" not in search.parse_query_rules("не хостел, тихий номер")["filters"]
+    assert "kind" not in search.parse_query_rules("чтобы было уютно, как дома")["filters"]
+    parsed = {"intents": [], "filters": {"kind": ["apartment"]}}
+    flat, _ = catalog.coarse_score(parsed, row(1, 51.8, 104.8, 4000, kind="APARTMENT", apart=True))
+    hotel, _ = catalog.coarse_score(parsed, row(2, 51.8, 104.8, 4000, kind="HOTEL"))
+    assert flat > hotel * 3, "в очередь на проверку должны попадать квартиры, а не отели"
+    sc = search.score_hotel({"kind": "HOTEL"}, [], parsed["filters"], [], {})
+    assert sc["label"] == "Не подходит" and any(i["feature"] == "kind" and i["verdict"] == "no" for i in sc["items"])
+    assert search.score_hotel({"kind": "APARTMENT"}, [], parsed["filters"], [], {})["label"] == "Подходит"
+
+
+def test_place_parsing_and_matching():
+    from app import places
+    p = search.parse_query_rules("домик на Малом Море с баней")
+    assert p["filters"]["place"] == ["maloe_more"] and p["filters"]["kind"] == ["house"]
+    assert not any(i["feature"] == "walk_to_beach" for i in p["intents"]), "«Малое Море» — место, а не «рядом с морем»"
+    assert search.parse_query_rules("квартира в Листвянке")["filters"]["place_where"] == "в Листвянке"
+    assert search.parse_query_rules("Северобайкальск")["filters"]["place"] == ["severobaykalsk"]
+    assert "place" not in search.parse_query_rules("байкальский омуль и тихий номер")["filters"]    # прилагательное, не город
+    assert "place" not in search.parse_query_rules("квартира не в Листвянке")["filters"]
+    # посёлок из каталога главнее координат; без посёлка — по координатам
+    assert places.in_place("listvyanka", "Listvyanka", None, None) is True
+    assert places.in_place("listvyanka", "Baikalsk", 51.86, 104.86) is False
+    assert places.in_place("listvyanka", None, 51.857, 104.860) is True
+    assert places.in_place("listvyanka", None, 51.927, 104.781) is False          # Большая Речка, 9 км
+    assert places.matches(["olkhon"], None, 53.19, 107.34) is True               # Хужир
+    assert places.matches(["olkhon"], "Sakhyurta", 53.02, 106.87) is False        # паром, но материк
+    assert places.matches(["listvyanka"], None, None, None) is None
+    parsed = {"intents": [], "filters": search.parse_query_rules("в Листвянке")["filters"]}
+    far, _ = catalog.coarse_score(parsed, row(1, 51.52, 104.13, 4000))           # Байкальск
+    near, notes = catalog.coarse_score(parsed, row(2, 51.857, 104.860, 4000))
+    assert near > far * 3 and any("Листвянка" in n for n in notes)
+    sc = search.score_hotel({"lat": 51.52, "lon": 104.13}, [], parsed["filters"], [], {})
+    assert sc["label"] == "Не подходит" and any(i["feature"] == "place" and i["verdict"] == "no" for i in sc["items"])
