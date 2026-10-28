@@ -48,15 +48,14 @@ const routes = [
   [/^#\/hotel\/(.+)$/, (m) => pageHotel(decodeURIComponent(m[1]))],
   [/^#\/compare\??(.*)$/, (m) => pageCompare(new URLSearchParams(m[1]).get("ids") || "")],
   [/^#\/hotelier$/, () => pageHotelier()],
-  [/^#\/quality$/, () => pageQuality()],
-  [/^#\/features$/, () => pageFeatures()],
+  [/^#\/(quality|features)$/, () => { location.replace("#/"); }],   // разделы убраны: старые ссылки ведут на главную
   [/^#\/search\??(.*)$/, (m) => pageSearch(new URLSearchParams(m[1] || "").get("q") || "")],
   [/^#\/?$/, () => pageFrog()],
 ];
 async function route() {
   const h = location.hash || "#/";
   closeDrawer();
-  const nav = h.startsWith("#/hotelier") ? "hotelier" : h.startsWith("#/quality") ? "quality" : h.startsWith("#/features") ? "features" : "search";
+  const nav = h.startsWith("#/hotelier") ? "hotelier" : "search";
   $$("[data-nav]").forEach(a => a.classList.toggle("on", a.dataset.nav === nav));
   main.className = "";
   for (const [rx, fn] of routes) { const m = h.match(rx); if (m) { main.innerHTML = '<div class="loading">Загружаем…</div>'; try { await fn(m); } catch (e) { main.innerHTML = `<div class="empty">Не получилось загрузить: ${esc(e.message)}</div>`; } window.scrollTo(0, 0); return; } }
@@ -166,7 +165,7 @@ function turnHtml(t, i, isLast) {
     const img = t.hasImage ? (t.img ? `<img class="mi" src="${t.img}" alt="Ваше фото">` : `<span class="muted fotoflag">${CAM} фото</span>`) : "";
     return `<div class="msg me" data-t="${i}"><div class="bub">${img}${t.text ? `<span>${esc(t.text)}</span>` : ""}</div></div>`;
   }
-  if (t.pending) return `<div data-t="${i}">${BUBBLE('<i></i><i></i><i></i><span class="sr">Лягушка думает</span>', "typing", 'role="status"')}</div>`;
+  if (t.pending) return `<div data-t="${i}">${BUBBLE(`<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="fst" aria-hidden="true">${esc(t.status || STATUS_FIRST)}</span><span class="el" aria-hidden="true">${t.elapsed || ""}</span><span class="sr">Лягушка ищет</span>`, "typing", 'role="status"')}</div>`;
   if (t.kind === "chat") {
     return `<div data-t="${i}">${BUBBLE(esc(t.text), "", `data-chat="${i}"`)}${isLast && t.hints && t.hints.length ? `<div class="hints">${t.hints.map(h => `<button type="button" class="ex2">${esc(h)}</button>`).join("")}</div>` : ""}</div>`;
   }
@@ -222,14 +221,74 @@ function upgradeChat(i, text, hist) {
     const el = document.querySelector(`.bubble[data-chat="${i}"]`); if (el) el.textContent = c.text;
   }).catch(() => {});
 }
+/* ───────── статус ожидания: что лягушка делает прямо сейчас ─────────
+   Один запрос к серверу, поэтому этапы идут по времени, но в том же порядке, что и на сервере:
+   фото → разбор пожеланий → поиск по базе → карта и отзывы → выбор тройки. Фразы подстраиваются под запрос. */
+const STATUS_FIRST = "Ква, слушаю…";
+const STATUS_LONG = ["Модель думает, ещё чуть-чуть…", "Лягушка не спешит, зато не выдумывает…", "Перепроверяю, чтобы не обещать лишнего…", "Почти готово, причёсываю ответ…"];
+const STATUS_TOPICS = [
+  [/закат|рассвет/i, "Считаю, куда садится солнце над Байкалом…"],
+  [/бан[яюие]|саун/i, "Ищу, где есть баня…"],
+  [/тих|шум|спать|выспат/i, "Прислушиваюсь к отзывам: где по ночам тихо…"],
+  [/вид|окн|панорам/i, "Проверяю, что видно из окон…"],
+  [/берег|озер|вод[аеуы]|пляж/i, "Меряю шаги до воды…"],
+  [/собак|кошк|питом|животн/i, "Узнаю, пускают ли с питомцами…"],
+  [/дет|реб[её]н|семь/i, "Смотрю, удобно ли с детьми…"],
+  [/квартир|апартамент|студи|посуточн/i, "Отбираю квартиры и апартаменты…"],
+  [/коттедж|домик|дом\b|вилл|шале/i, "Отбираю дома и коттеджи…"],
+  [/ольхон|хужир|листвянк|байкальск|голоустн|слюдянк|малом? мор/i, "Смотрю на карту нужного посёлка…"],
+  [/₽|руб|бюджет|дешев|до \d/i, "Сверяю цены за ночь…"],
+  [/зим|л[её]д|январ|феврал|март/i, "Вспоминаю, каково там зимой…"],
+];
+function statusScript(text, image, followup) {
+  const t = text || "", total = (lastSearch() && lastSearch().data.coverage && lastSearch().data.coverage.total) || 0;
+  const s = [];
+  if (image) s.push("Разглядываю фото…", "Сверяю с фотографиями отелей из базы…");
+  if (followup && t) s.push("Дополняю прежние пожелания…");
+  if (t) s.push("Раскладываю пожелания на критерии…");
+  else if (image) s.push("Перевожу фото в пожелания: вид, дом, сезон…");
+  const topics = STATUS_TOPICS.filter(([rx]) => rx.test(t)).map(([, p]) => p).slice(0, 3);
+  s.push(total ? `Перебираю ${total} ${plural(total, "отель", "отеля", "отелей")} Байкала…` : "Перебираю отели Байкала…", ...topics);
+  if (!topics.length) s.push("Сверяю координаты с картой…", "Читаю отзывы гостей…");
+  s.push("Выбираю лучшую тройку…");
+  return s;
+}
+function runStatus(pend, script) {
+  const started = Date.now();
+  let k = 0, long = 0, swapT;
+  const paint = () => {
+    const i = chat.turns.indexOf(pend), el = i >= 0 && document.querySelector(`[data-t="${i}"] .typing`);
+    if (!el) return;
+    const st = el.querySelector(".fst"), e = el.querySelector(".el");
+    if (e) e.textContent = pend.elapsed || "";
+    if (st && st.textContent !== pend.status) {
+      st.classList.add("out");                               // мягкая смена фразы
+      clearTimeout(swapT);
+      swapT = setTimeout(() => { st.textContent = pend.status; st.classList.remove("out"); }, 180);
+    }
+  };
+  const next = () => {
+    pend.status = k < script.length ? script[k++] : STATUS_LONG[long++ % STATUS_LONG.length];
+    paint();
+    timer = setTimeout(next, k <= 1 ? 1300 : k <= script.length ? 2300 : 3600);
+  };
+  let timer = setTimeout(next, 700);
+  const clock = setInterval(() => {
+    const sec = Math.round((Date.now() - started) / 1000);
+    pend.elapsed = sec >= 10 ? ` · ${sec} с` : "";
+    paint();
+  }, 1000);
+  return () => { clearTimeout(timer); clearInterval(clock); clearTimeout(swapT); };
+}
 async function askFrog(text, image) {
   if (chatBusy) return;
   chatBusy = true; clearTimeout(frogPoll);
   const hist = chatHistory();
   if (image) lastImage = image;
   chat.turns.push({ role: "user", text, hasImage: !!image, img: image });
-  const pend = { role: "frog", pending: true };
+  const pend = { role: "frog", pending: true, status: STATUS_FIRST };
   chat.turns.push(pend);
+  const stopStatus = runStatus(pend, statusScript(text, image, !!chat.wish));
   if (!$("#dock")) pageFrog(); else renderThread();
   const go = $("#go"); if (go) go.disabled = true;
   const pe = $(`[data-t="${chat.turns.length - 1}"]`); if (pe) pe.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -243,6 +302,7 @@ async function askFrog(text, image) {
       try { sessionStorage.setItem("frog_ctx", JSON.stringify({ text: r.wish, parsed: r.parsed, image: lastImage, understood: r.understood })); } catch {}
     }
   } catch (err) { turn = { role: "frog", kind: "chat", text: "Ква-а, что-то пошло не так: " + err.message + ". Попробуйте ещё раз.", hints: [] }; }
+  stopStatus();
   chatBusy = false;
   const i = chat.turns.indexOf(pend);
   if (i < 0) return;
@@ -641,50 +701,6 @@ async function pageHotelier() {
   $$(".cf").forEach(b => b.onclick = async () => {
     let v = b.dataset.v; if (v === undefined) { const inp = b.parentElement.querySelector(".cfn"); if (!inp.value) return toast("Введите значение"); v = inp.value; } else v = v === "true";
     try { await api("/api/hotelier/confirm", { body: { hotel_id: b.dataset.h, feature: b.dataset.f, scope: b.dataset.s, value: v } }); toast("Записано"); pageHotelier(); } catch (e) { toast(e.message); } });
-}
-
-/* ───────── качество и свежесть ───────── */
-async function pageQuality() {
-  const [m, fr] = await Promise.all([api("/api/metrics"), api("/api/freshness")]);
-  const pct = x => Math.round(x * 100) + "%";
-  const st = m.by_status, tot = Object.values(st).reduce((a, b) => a + b, 0) || 1;
-  const ev = m.evaluation;
-  main.innerHTML = `<h1 class="page-h">Качество и свежесть данных</h1>
-  <div class="tiles"><div class="tile"><b>${m.hotels}</b><span>отелей</span></div><div class="tile"><b>${m.reviews}</b><span>отзывов проанализировано</span></div><div class="tile"><b>${m.facts_per_hotel}</b><span>фактов на отель из ${m.features} характеристик</span></div>
-  <div class="tile"><b>${pct(m.share.confirmed_or_likely)}</b><span>фактов подтверждены или вероятны</span></div><div class="tile"><b>${pct(m.share.multi_source)}</b><span>фактов подтверждены ≥2 источниками</span></div><div class="tile"><b>${pct(m.share.from_geodata)}</b><span>фактов посчитано по геоданным</span></div>
-  <div class="tile"><b>${pct(m.share.disputed)}</b><span>фактов — источники спорят</span></div><div class="tile"><b>${pct(m.share.stale)}</b><span>фактов устарели</span></div></div>
-  <div class="two"><section class="blk"><h2>Статусы фактов</h2>${Object.keys(STATUS).filter(k => st[k]).map(k => `<div class="hbar"><span>${cert(k)} ${STATUS[k]}</span><div class="tr"><i style="width:${st[k] / tot * 100}%"></i></div><span class="num">${st[k]}</span></div>`).join("")}
-  <h3 style="margin-top:14px">Уверенность</h3>${m.confidence_hist.map(b => `<div class="hbar"><span>${b.from}–${b.to}%</span><div class="tr"><i class="second" style="width:${b.count / tot * 100}%"></i></div><span class="num">${b.count}</span></div>`).join("")}</section>
-  <section class="blk"><h2>Источники</h2>${m.sources.map(s => `<div class="hbar"><span>${esc(s.title)}</span><div class="tr"><i style="width:${s.observations / Math.max(...m.sources.map(x => x.observations)) * 100}%"></i></div><span class="num">${s.observations}</span></div>`).join("")}
-  <h3 style="margin-top:14px">Вопросы отельерам</h3><p>Открыто ${m.questions.open}, отвечено ${m.questions.answered}. Система спрашивает только о том, что не смогла определить сама или где источники спорят.</p></section></div>
-  <section class="blk"><h2>Точность на размеченной выборке</h2>${ev.labeled ? `<div class="tiles"><div class="tile"><b>${ev.labeled}</b><span>проверенных значений</span></div>${ev.bool_accuracy != null ? `<div class="tile"><b>${pct(ev.bool_accuracy)}</b><span>верных да/нет (n=${ev.bool_n})</span></div>` : ""}${ev.precision_confident != null ? `<div class="tile"><b>${pct(ev.precision_confident)}</b><span>верных среди «подтверждено/вероятно»</span></div>` : ""}${ev.ece != null ? `<div class="tile"><b>${ev.ece}</b><span>ошибка калибровки (чем меньше, тем лучше)</span></div>` : ""}${ev.numeric_mae != null ? `<div class="tile"><b>${ev.numeric_mae}</b><span>средняя ошибка чисел</span></div>` : ""}</div>${ev.calibration ? `<table><thead><tr><th>Заявленная уверенность</th><th>Фактов</th><th>Средняя уверенность</th><th>Доля верных</th></tr></thead><tbody>${ev.calibration.map(c => `<tr><td>${c.bin}</td><td>${c.n}</td><td>${c.mean_confidence}</td><td>${c.accuracy}</td></tr>`).join("")}</tbody></table>` : ""}` : `<p class="muted">${esc(ev.note)}</p>`}
-  <h3 style="margin-top:16px">Разметка</h3><p class="muted">Проверьте значение по фото, карте или по звонку в отель и отметьте, верно ли оно. Сначала показываем самые неуверенные.</p><div id="cands"></div></section>
-  <section class="blk"><h2>Свежесть</h2><p>Устарело: <b>${fr.stale_total}</b> · скоро устареет (30 дней): <b>${fr.expiring_total}</b> · спорно: <b>${fr.disputed_total}</b></p>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><button id="rs">Пересчитать статусы и перепроверить устаревшее</button><button class="quiet" id="rso">То же, с перекачкой с Островка и OSM</button></div>
-  <h3>Последние события</h3><ul class="events">${fr.events.length ? fr.events.map(e => `<li><b>${esc(e.hotel || "")}</b> ${esc(e.text)} <small class="muted">${esc((e.ts || "").slice(0, 16).replace("T", " "))}</small></li>`).join("") : '<li class="muted">Событий пока нет.</li>'}</ul></section>
-  <section class="blk"><h2>Покрытие по характеристикам</h2><table><thead><tr><th>Характеристика</th><th>Откуда</th><th>Есть у отелей</th><th>Надёжно</th></tr></thead><tbody>${m.coverage.map(c => `<tr><td>${esc(c.title)}</td><td>${c.computed ? "геоданные + отзывы" : "карточка + отзывы"}${c.builtin ? "" : ' <span class="pill">своя</span>'}</td><td class="num">${pct(c.coverage)}</td><td class="num">${pct(c.reliable)}</td></tr>`).join("")}</tbody></table></section>`;
-  const run = online => async () => { try { const r = await api("/api/freshness/refresh", { body: { limit: 10, online } }); toast(`Перепроверено отелей: ${r.refreshed}, изменилось значений: ${r.changes}`); pageQuality(); } catch (e) { toast(e.message); } };
-  $("#rs").onclick = run(false); $("#rso").onclick = run(true);
-  const cands = await api("/api/eval/candidates");
-  $("#cands").innerHTML = cands.length ? `<table><tbody>${cands.slice(0, 12).map((c, i) => `<tr><td>${esc(c.hotel)}</td><td>${esc(c.title)} <span class="pill">${esc(c.scope_title)}</span></td><td>${cert(c.status)} ${esc(c.summary)}</td><td><button class="quiet lb" data-i="${i}" data-ok="1">Верно</button> <button class="quiet lb" data-i="${i}" data-ok="0">Неверно</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">Нечего размечать.</div>';
-  $$(".lb").forEach(b => b.onclick = async () => { const c = cands[+b.dataset.i]; const val = b.dataset.ok === "1" ? !!c.value : !c.value; await api("/api/eval/labels", { body: { hotel_id: c.hotel_id, feature: c.feature, scope: c.scope, value: val } }); toast("Разметка сохранена"); pageQuality(); });
-}
-
-/* ───────── характеристики ───────── */
-async function pageFeatures() {
-  const fs = await api("/api/features");
-  const groups = {}; fs.forEach(f => (groups[f.group] ||= []).push(f));
-  main.innerHTML = `<h1 class="page-h">Характеристики</h1><p class="muted" style="max-width:70ch">Список расширяется без правки кода: опишите, что для гостей важно, — и система сама найдёт упоминания в отзывах, спросит отельеров и подключит новое к поиску.</p>
-  <section class="blk"><h2>Добавить характеристику</h2><label for="fd">Опишите словами</label><textarea id="fd" rows="2" placeholder="Например: в номере есть чайник и можно сделать чай ночью"></textarea>
-  <div style="margin:10px 0"><button id="fs">Предложить описание</button></div><form id="ff" hidden>
-    <div class="form-row"><div><label for="ft">Название</label><input id="ft" required></div><div><label for="fk">Тип</label><select id="fkind"><option value="bool">Да / нет</option><option value="score">Оценка 0–100</option><option value="number">Число</option></select></div></div>
-    <label for="fy">Слова для поиска и отзывов (через запятую, достаточно основ слов)</label><input id="fy">
-    <label for="fq">Вопрос отельеру</label><input id="fq"><div style="margin-top:12px"><button type="submit">Добавить и применить к отзывам</button></div></form><div id="fres"></div></section>
-  ${Object.entries(groups).map(([g, list]) => `<section class="blk"><h2>${esc(META.groups[g] || g)}</h2><table><tbody>${list.map(f => `<tr><td style="width:240px"><b>${esc(f.title)}</b></td><td>${esc(f.description || "")}<br><small class="muted">${f.computed ? "считается по карте · " : ""}срок жизни ${f.ttl_days} дн.${f.synonyms.length ? " · ищется по: " + esc(f.synonyms.slice(0, 5).join(", ")) : ""}</small></td><td style="width:90px">${f.builtin ? "" : `<button class="quiet del" data-k="${esc(f.key)}">Удалить</button>`}</td></tr>`).join("")}</tbody></table></section>`).join("")}`;
-  let draft = null;
-  $("#fs").onclick = async () => { const t = $("#fd").value.trim(); if (t.length < 6) return toast("Опишите характеристику хотя бы парой слов"); try { draft = await api("/api/features/suggest", { body: { description: t } }); $("#ff").hidden = false; $("#ft").value = draft.title; $("#fy").value = draft.synonyms.join(", "); $("#fq").value = draft.question; $("#fkind").value = draft.kind; toast(draft.drafted_by === "llm" ? "Описание предложено LLM — проверьте" : "Черновик по ключевым словам — проверьте и поправьте"); } catch (e) { toast(e.message); } };
-  $("#ff").onsubmit = async e => { e.preventDefault(); try { const r = await api("/api/features", { body: { ...(draft || {}), description: $("#fd").value.trim(), title: $("#ft").value.trim(), kind: $("#fkind").value, synonyms: $("#fy").value.split(",").map(s => s.trim()).filter(Boolean), question: $("#fq").value.trim() } }); $("#fres").innerHTML = `<div class="parsed">Добавлено «${esc(r.feature.title)}». Упоминания найдены у ${r.applied.hotels_with_evidence} из ${r.applied.hotels} отелей. Теперь по ней работает поиск, и по отелям без данных отельерам уйдут вопросы.</div>`; setTimeout(pageFeatures, 2600); } catch (er) { toast(er.message); } };
-  $$(".del").forEach(b => b.onclick = async () => { await api("/api/features/" + b.dataset.k, { method: "DELETE" }); pageFeatures(); });
 }
 
 /* ───────── старт ───────── */
