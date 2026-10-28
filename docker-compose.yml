@@ -10,6 +10,8 @@ services:
         required: false
     environment:
       APP_PORT: "8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # чтобы контейнер видел Ollama на вашем компьютере (Linux; на Mac/Windows работает и так)
     volumes:
       - lupa-runtime:/app/runtime        # база с ответами отельеров и разметкой переживает перезапуск
     healthcheck:

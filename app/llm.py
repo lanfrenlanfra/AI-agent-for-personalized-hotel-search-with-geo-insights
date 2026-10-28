@@ -20,7 +20,7 @@ def available() -> bool:
     return settings.llm_enabled
 
 
-def chat(messages: list[dict], temperature: float = 0.2, timeout: int = 45) -> str | None:
+def chat(messages: list[dict], temperature: float = 0.2, timeout: int = 90) -> str | None:
     if not available():
         return None
     try:
@@ -31,7 +31,9 @@ def chat(messages: list[dict], temperature: float = 0.2, timeout: int = 45) -> s
             timeout=timeout,
         )
         r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+        txt = r.json()["choices"][0]["message"]["content"] or ""
+        # «думающие» модели (qwen3, glm, deepseek) присылают рассуждения в <think>…</think>
+        return re.sub(r"<think>.*?</think>", "", txt, flags=re.S).strip() or None
     except Exception as e:  # noqa: BLE001 — любой сбой сети/формата не должен ронять сервис
         print(f"[llm] ошибка запроса: {e}", flush=True)
         return None

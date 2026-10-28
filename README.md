@@ -77,7 +77,7 @@ API (JSON): `GET /health`, `/api/meta`, `/api/hotels`, `/api/hotels/{id}`, `/api
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
 | `APP_PORT` | `8080` | порт внутри контейнера (наружу всегда 8080:8080) |
-| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | — | любой OpenAI-совместимый API; **необязательно**. Без ключа всё работает на правилах |
+| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_PROJECT` | — | любой OpenAI-совместимый API; **необязательно**. Без ключа всё работает на правилах. Готовые примеры (Ollama, Yandex AI Studio) — в `.env.example`; проверка: `docker compose exec app python scripts/check_llm.py` |
 | `REGION_SLUG` | `russia/st._petersburg` | регион каталога Островка для сбора |
 | `COLLECT_LIMIT`, `COLLECT_DELAY` | `60`, `1.5` | размер стартовой глубокой выборки и пауза между запросами (сек) |
 | `COLLECT_CATALOG_PAGES` | `100` | сколько страниц каталога обойти для индекса региона (по 20 отелей) |
