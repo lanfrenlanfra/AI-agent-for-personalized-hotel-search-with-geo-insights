@@ -1,5 +1,5 @@
 "use strict";
-/* Лупа — одностраничный интерфейс без сборки. Маршрутизация по hash. */
+/* Агент Ква — одностраничный интерфейс без сборки. Маршрутизация по hash. */
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -102,7 +102,7 @@ let pollTimer = null;
 async function runSearch(q, override, passive) {
   const box = $("#results");
   clearTimeout(pollTimer);
-  if (!passive) box.innerHTML = '<div class="loading">Считаем…</div>';
+  if (!passive) box.innerHTML = '<div class="loading">Агент Ква сверяет карту и отзывы…</div>';
   const res = await api("/api/search", { body: { q, ...(override || {}), ...(passive ? { passive: true } : {}) } });
   if (!$("#results")) return;
   lastSearch = { q, res, override };
@@ -151,7 +151,7 @@ function cardHtml(r) {
     <div class="bd">
       <div class="top-row"><h3><a href="#/hotel/${encodeURIComponent(r.id)}">${esc(r.name)}</a></h3>${r.price_from ? `<div class="price">от ${money(r.price_from)}<small>за ночь</small></div>` : ""}</div>
       <div class="meta">${r.stars ? `<span class="st-stars" title="${r.stars} зв.">${stars(r.stars)}</span>` : ""}${r.rating ? `<span>оценка ${rate(r.rating)}${r.reviews ? ` · ${r.reviews} отз.` : ""}</span>` : ""}<span>${esc(shortAddr(r.address))}</span></div>
-      <div class="score"><div class="bar" role="img" aria-label="Совпадение ${r.score}%"><i style="width:${r.score}%"></i></div><span class="num">${r.score}%</span><span class="label ${lb}">${esc(r.label)}</span></div>
+      ${items.length ? `<div class="score"><div class="bar" role="img" aria-label="Совпадение ${r.score}%"><i style="width:${r.score}%"></i></div><span class="num">${r.score}%</span><span class="label ${lb}">${esc(r.label)}</span></div>` : ""}
       <ul class="why">${items.map(i => `<li><span class="vd vd-${i.verdict}" title="${i.verdict}">${VERDICT[i.verdict] || "?"}</span><span><b>${esc(i.title)}</b>${i.scope_title && i.scope !== "hotel" ? ` <span class="pill">${esc(i.scope_title)}</span>` : ""} — ${esc(i.conflict && i.verdict === "disputed" ? i.conflict : i.text)} ${i.age_days != null ? `<span class="age">${ageText(i.age_days)}</span>` : ""}</span></li>`).join("")}</ul>
       <label class="cmp"><input type="checkbox" value="${esc(r.id)}"> Добавить в сравнение</label>
     </div></article>`;
