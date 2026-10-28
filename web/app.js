@@ -120,7 +120,8 @@ function understoodHtml(u) {
   if (!u) return "";
   const chips = (u.intents || []).map(i => `<span class="chip">${esc(i.title)}</span>`).join("") + filterChips(u.filters || {}).map(([, t]) => `<span class="chip flt">${esc(t)}</span>`).join("");
   let note = "";
-  if (u.image_read) note = `<div class="note">На фото я увидела: ${esc(u.image_note)}</div>`;
+  if (u.image_off) note = `<div class="note">${u.image_what ? `На фото ${esc(u.image_what)}` : "Это фото"} — на отель или место отдыха не похоже, поэтому я его не учитывала. Искала по вашим словам.</div>`;
+  else if (u.image_read && u.image_note) note = `<div class="note">На фото я увидела: ${esc(u.image_note)}</div>`;
   else if (u.image_given) note = `<div class="note">Фото я пока не разглядела (нужна модель, которая видит картинки), поэтому искала только по тексту.</div>`;
   return `<div class="understood">${chips ? `<div class="chips"><span>Я поняла так:</span>${chips}</div>` : `<div class="note">Не услышала конкретных пожеланий. Расскажите про вид, тишину, баню или путь до берега, и я подберу точнее.</div>`}${note}</div>`;
 }
@@ -203,6 +204,14 @@ async function pageFrog() {
     out.innerHTML = `<div class="thinking"><b>Лягушка работает</b><span>Читает запрос${image ? " и смотрит фото" : ""}, ищет по каталогу Островка, сверяет карту и свежесть данных. Это может занять до минуты.</span></div>`;
     try {
       const r = await api("/api/frog/ask", { body: { text, image } });
+      if (r.mode === "chat") {
+        $(".mascot", fh).classList.remove("hop"); $("h1", fh).textContent = "Расскажите, чего вам хочется"; go.disabled = false;
+        out.innerHTML = `<div class="chatbox"><div class="say big"><div class="av" aria-hidden="true">${FROG_MINI}</div><div class="bubble">${esc(r.reply)}</div></div>
+          <div class="hints">${r.hints.map(h => `<button type="button" class="ex2">${esc(h)}</button>`).join("")}</div></div>`;
+        $$(".ex2", out).forEach(b => b.onclick = () => { $("#q").value = b.textContent; image = null; showThumb(); $("#af").requestSubmit(); });
+        $("#q").focus();
+        return;
+      }
       const st = { text, image, data: r, understood: r.understood };
       frogState = st;
       try { sessionStorage.setItem("frog_ctx", JSON.stringify({ text, parsed: r.parsed, image, understood: r.understood })); } catch {}

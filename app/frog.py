@@ -8,33 +8,127 @@
 """
 from __future__ import annotations
 
+import json
 import re
 
 from . import llm, search
 
-IMG_PROMPT = ("Ты помогаешь выбрать отель на Байкале по фотографии-референсу. Опиши по-русски в 1–2 коротких предложениях только то, "
-              "что видно и важно для проживания: вид из окна или вокруг (озеро, лёд, лес, горы, закат), время года, тишина или многолюдность, "
-              "тип жилья и интерьер (дерево, баня, камин, панорамные окна). Не выдумывай того, чего не видно.")
+IMG_PROMPT = ("Посмотри на фото: человек выбирает отель на Байкале и приложил его как референс. Верни ТОЛЬКО JSON вида "
+              '{"relevant": true|false, "what": "что на фото, 3-8 слов", "wishes": "..."}. '
+              "relevant=true, если это отель, номер, жильё, интерьер, вид из окна, озеро, лес, горы, берег или другое место отдыха; "
+              "false — для еды, документов, скриншотов, животных, людей без обстановки, техники и всего прочего, что не про жильё и отдых. "
+              "wishes — при relevant=true 1–2 коротких русских предложения о том, что видно и важно для проживания: вид из окна, озеро, лёд, лес, закат, "
+              "тишина или людно, тип дома, дерево, баня, камин, панорамные окна, сезон; иначе пустая строка. Не выдумывай того, чего не видно.")
 
 
-def describe_image(data_url: str) -> str | None:
+def describe_image(data_url: str) -> dict | None:
+    """{'relevant': bool, 'what': str, 'wishes': str} или None, если фото не удалось прочитать."""
     if not data_url or not data_url.startswith("data:image/") or len(data_url) > 6_000_000:
         return None
-    txt = llm.chat([{"role": "user", "content": [{"type": "text", "text": IMG_PROMPT}, {"type": "image_url", "image_url": {"url": data_url}}]}],
+    raw = llm.chat([{"role": "user", "content": [{"type": "text", "text": IMG_PROMPT}, {"type": "image_url", "image_url": {"url": data_url}}]}],
                    temperature=0.2, timeout=120)
-    return re.sub(r"\s+", " ", txt).strip()[:400] if txt else None
+    if not raw:
+        return None
+    m = re.search(r"\{.*\}", raw, re.S)
+    try:
+        d = json.loads(m.group(0)) if m else None
+    except json.JSONDecodeError:
+        d = None
+    if isinstance(d, dict) and "relevant" in d:
+        return {"relevant": bool(d.get("relevant")), "what": re.sub(r"\s+", " ", str(d.get("what") or "")).strip()[:80],
+                "wishes": re.sub(r"\s+", " ", str(d.get("wishes") or "")).strip()[:400]}
+    t = re.sub(r"\s+", " ", raw).strip()[:400]            # модель ответила обычным текстом: считаем описанием
+    return {"relevant": True, "what": "", "wishes": t}
+
+
+HINTS = ["тихий номер с видом на закат над Байкалом, зимой", "у берега, с баней и тёплым номером, до 7000 ₽", "Ольхон, вид на скалу Шаманка, можно с собакой"]
+_GREET = re.compile(r"^\W*(привет|приветик|здравствуй|здравствуйте|добрый\s+(день|вечер|утро)|доброе\s+утро|хай|хэй|ку|здарова|салют|hello|hi|hey|ква)\W*$", re.I)
+_THANKS = re.compile(r"спасиб|благодар|пока\b|до свидания|всего доброго|thanks", re.I)
+_ABOUT = re.compile(r"кто ты|ты кто|что ты умеешь|что умеешь|как тебя зовут|ты умеешь|чем занимаешься|как дела|как ты|помоги|помощь|что ты такое|расскажи о себе", re.I)
+_REGION = re.compile(r"\b(сочи|москв\w*|питер\w*|санкт|петербург\w*|крым\w*|ялт\w*|казан\w*|турци\w*|египт\w*|дубай|таиланд\w*|пхукет|бали|париж\w*|алтай\w*|карели\w*|камчатк\w*|сибир\w*|красноярск\w*|новосибирск\w*|геленджик\w*|анап\w*|кавказ\w*|эльбрус\w*)", re.I)
+_HOTELISH = re.compile(r"отел|номер|жильё|жилье|гостиниц|хостел|апартамент|дом\b|домик|баз[аы] отдыха|ночь|ночев|останов|пожить|отдох|отдых|поездк|путешеств|байкал|озер|хочу|нужн|ищу|подбер|найд", re.I)
+
+
+def _pick(opts: list[str], key: str) -> str:
+    return opts[sum(ord(c) for c in key) % len(opts)]
+
+
+def smalltalk(text: str, image: dict | None, image_given: bool) -> tuple[str, str] | None:
+    """Не поиск ли это? Возвращает (вид, шаблонный ответ) или None, если надо искать."""
+    t = text.strip()
+    place = _REGION.search(t)
+    if image_given and not t:
+        if image is None:
+            return "image_unread", "Ква! Фото я пока не разглядела, а без слов не пойму. Опишите, какой отдых на Байкале хотите, и подберу отели."
+        if not image["relevant"]:
+            what = f"«{image['what']}»" if image["what"] else "что-то интересное"
+            return "image_off", (f"Ква! На фото {what}. Выглядит любопытно, но на отель или место для отдыха не очень похоже. "
+                                 "Пришлите вид из окна, дом или интерьер, который нравится, или просто опишите мечту словами.")
+        if not image["wishes"]:
+            return "image_vague", "Ква! Фото красивое, но по нему одному я пока не поняла, что для вас важно. Добавьте пару слов: тишина, баня, берег, бюджет?"
+        return None
+    if _GREET.match(t):
+        return "greet", _pick(["Ква! Привет-привет! Я лягушка-агент: подбираю отели на Байкале и проверяю их по карте. Расскажите, какой отдых хотите: тихий, с видом на озеро, с баней?",
+                               "Ква-ква! Рада вас видеть. Давайте найдём жильё у самого Байкала. Что для вас главное: вид, тишина, баня или путь до берега?"], t)
+    if _THANKS.search(t) and len(t) < 40:
+        return "thanks", "Ква! Всегда пожалуйста. Соберётесь на Байкал, просто расскажите, какой отель нужен, а я подберу три варианта."
+    if _ABOUT.search(t):
+        return "about", ("Ква! Я лягушка-агент. Читаю карту, отзывы и данные Островка и подбираю три отеля на Байкале под ваши пожелания, можно даже по фото. "
+                         "Расскажите, чего хочется: вид на закат, тишины, бани?")
+    if place:
+        return "region", (f"Ква! Я живу на берегу Байкала и знаю только его, про «{place.group(0)}» подсказать не смогу. "
+                          "Зато найду отель у озера: что важно — вид, тишина, баня, бюджет?")
+    return None
+
+
+def vague_or_off(text: str) -> tuple[str, str]:
+    if _HOTELISH.search(text):
+        return "vague", ("Ква! Отелей на Байкале много, давайте сузим. Что для вас важно: вид на озеро, тишина, баня, путь до берега, бюджет? "
+                         "Можно описать мечту своими словами или приложить фото.")
+    return "off", _pick(["Ква-а… С этим я не помогу: умею только подбирать отели на Байкале. Но давайте попробуем: какой отдых вам по душе, тихий или шумный, с видом на озеро или с баней?",
+                         "Ква! Это вне моего болота: я лягушка-агент по отелям Байкала. Расскажите, где хотите проснуться: с видом на лёд, рядом с берегом, в тишине?"], text)
+
+
+def chat_reply(text: str, kind: str, base: str) -> dict:
+    """Живой ответ модели в роли лягушки; без модели — шаблон."""
+    if llm.usable() and kind in ("greet", "thanks", "about", "region", "vague", "off"):
+        out = llm.chat([
+            {"role": "system", "content": "Ты — лягушка Ква, весёлый и тёплый агент по отелям Байкала. Ответь гостю на его реплику в 1–3 коротких предложениях по-русски, с лёгким юмором, "
+                                          "и мягко подведи к тому, чтобы он описал, какой отдых или отель на Байкале ищет (вид, тишина, баня, берег, бюджет, с кем едет). "
+                                          "Если он спрашивает про другое место или тему, шутливо скажи, что умеешь только отели Байкала. Ничего не выдумывай про конкретные отели, без списков и эмодзи, можно начать с «Ква!»."},
+            {"role": "user", "content": text}], temperature=0.8, timeout=40)
+        if out:
+            return {"text": out.strip(), "by": "llm"}
+    return {"text": base, "by": "template"}
 
 
 def understand(text: str, image: str | None) -> dict:
-    """Склеивает текст и описание картинки в один запрос и разбирает его."""
-    note = None
-    if image:
-        note = describe_image(image)
+    """Склеивает текст и описание картинки в один запрос и разбирает его. Если это не поиск, готовит ответ лягушки."""
+    img = describe_image(image) if image else None
+    res = {"text": text.strip(), "image_given": bool(image), "image_read": img is not None, "image_note": None, "image_off": False, "image_what": None, "chat": None}
+    if img:
+        res["image_what"] = img["what"] or None
+        if img["relevant"]:
+            res["image_note"] = img["wishes"] or img["what"] or None
+        else:
+            res["image_off"] = True
     full = text.strip()
-    if note:
-        full = (full + ". " if full else "") + "Хочу как на фото: " + note
+    if img and img["relevant"] and img["wishes"]:
+        full = (full + ". " if full else "") + "Хочу как на фото: " + img["wishes"]
+    st = smalltalk(text, img, bool(image))
+    if st:
+        res["chat"] = {"kind": st[0], **chat_reply(text, st[0], st[1])}
+        res["parsed"] = {"query": text, "intents": [], "filters": {}, "text_terms": [], "parsed_by": "rules"}
+        return res
     parsed = search.parse_query(full)
-    return {"text": text.strip(), "image_note": note, "image_given": bool(image), "image_read": bool(note), "parsed": parsed}
+    if not parsed["intents"] and not parsed.get("filters"):
+        if img and img["relevant"]:
+            kind, base = "image_vague", "Ква! Фото красивое, но я не уловила, что на нём для вас главное. Добавьте пару слов: тишина, баня, берег, бюджет?"
+        else:
+            kind, base = vague_or_off(text or full)
+        res["chat"] = {"kind": kind, **chat_reply(text or full, kind, base)}
+    res["parsed"] = parsed
+    return res
 
 
 def _short(i: dict) -> str:

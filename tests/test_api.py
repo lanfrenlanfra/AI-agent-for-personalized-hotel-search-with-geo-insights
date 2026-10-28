@@ -142,3 +142,31 @@ def test_frog_compare_only_requested(client):
     s = client.post("/api/frog/compare/say", json={"ids": ids, "text": "x", "parsed": r["parsed"]}).json()
     assert s["text"] and s["by"] in ("llm", "template")
     assert client.post("/api/frog/compare", json={"ids": ids[:1], "parsed": r["parsed"]}).status_code == 400
+
+
+def _ask(client, text="", image=None):
+    return client.post("/api/frog/ask", json={"text": text, "image": image}).json()
+
+
+def test_frog_smalltalk_and_offtopic(client):
+    for t, kind in [("привет", "greet"), ("Привет!", "greet"), ("кто ты?", "about"), ("спасибо, пока", "thanks"), ("хочу в Сочи", "region"),
+                    ("реши мне уравнение", "off"), ("хочу отель", "vague")]:
+        r = _ask(client, t)
+        assert r["mode"] == "chat" and r["kind"] == kind and r["reply"].startswith("Ква") and r["hints"], (t, r)
+    assert _ask(client, "тихий номер с видом на закат")["mode"] == "search"
+
+
+def test_frog_irrelevant_image(client, monkeypatch):
+    from app import llm
+    img = "data:image/jpeg;base64,/9j/4AAQ"
+    monkeypatch.setattr(llm, "chat", lambda *a, **k: '{"relevant": false, "what": "рыжий кот на диване", "wishes": ""}')
+    r = _ask(client, "", img)                                   # одно фото и оно не про отели
+    assert r["mode"] == "chat" and r["kind"] == "image_off" and "рыжий кот" in r["reply"]
+    r = _ask(client, "тихий номер с видом на закат", img)       # текст нормальный: ищем по нему, фото не учитываем
+    assert r["mode"] == "search" and r["understood"]["image_off"] and r["top"]
+    monkeypatch.setattr(llm, "chat", lambda *a, **k: '{"relevant": true, "what": "дом у озера", "wishes": "Деревянный дом у озера, зимой, тихо."}')
+    r = _ask(client, "", img)                                   # фото про отдых, слов нет: ищем по тому, что на нём
+    assert r["mode"] == "search" and r["understood"]["image_note"]
+    monkeypatch.setattr(llm, "chat", lambda *a, **k: None)
+    r = _ask(client, "", img)                                   # модель не видит картинки
+    assert r["mode"] == "chat" and r["kind"] == "image_unread"

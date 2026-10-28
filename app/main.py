@@ -190,12 +190,15 @@ async def frog_ask(request: Request):
             return err("Опишите, какой отель вы ищете")
         und = await run_in_threadpool(frog.understand, text, image)
         parsed = und["parsed"]
+        if und.get("chat"):          # не поиск: болтовня, чужой регион, неподходящее фото, слишком общий запрос
+            return ok({"mode": "chat", "reply": und["chat"]["text"], "by": und["chat"]["by"], "kind": und["chat"]["kind"], "hints": frog.HINTS,
+                       "llm_state": llm.state(), "understood": {k: und[k] for k in ("image_given", "image_read", "image_off", "image_what")}})
     res = search.search(text, 200, parsed)
     res = await run_in_threadpool(enrich.augment, parsed, res, not passive)
-    out = {"top": frog.top(res["results"], 3, text), "coverage": res.get("coverage"), "parsed": {k: v for k, v in parsed.items() if k != "text_terms"},
+    out = {"mode": "search", "top": frog.top(res["results"], 3, text), "coverage": res.get("coverage"), "parsed": {k: v for k, v in parsed.items() if k != "text_terms"},
            "llm_state": llm.state()}
     if und:
-        out["understood"] = {k: v for k, v in und.items() if k != "parsed"}
+        out["understood"] = {k: v for k, v in und.items() if k not in ("parsed", "chat")}
         out["understood"]["intents"] = [{"title": i["title"], "want": i.get("want", True)} for i in parsed["intents"]]
         out["understood"]["filters"] = parsed.get("filters") or {}
         out["understood"]["parsed_by"] = parsed.get("parsed_by")
