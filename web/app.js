@@ -5,6 +5,13 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const main = $("#main");
 let META = null;
+function llmStatus() {
+  const el = document.getElementById("llmst");
+  if (!el || !META) return;
+  const st = META.llm_state;
+  el.textContent = st === "ready" ? `· LLM: ${META.llm_model}` : st === "loading" ? `· LLM ${META.llm_model} загружается (первый запуск — несколько минут), пока работают правила` : "· LLM выключен, работают правила";
+  if (st === "loading") setTimeout(async () => { try { META = await api("/api/meta"); } catch {} llmStatus(); }, 20000);
+}
 const state = { compare: new Set(), token: null, map: null };
 
 async function api(path, opts = {}) {
@@ -422,5 +429,6 @@ async function pageFeatures() {
 (async function boot() {
   state.token = sessionStorage.getItem("lupa_token");
   try { META = await api("/api/meta"); } catch { META = { groups: {}, scopes: {} }; }
+  llmStatus();
   route();
 })();

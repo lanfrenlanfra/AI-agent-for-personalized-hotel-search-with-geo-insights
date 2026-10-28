@@ -172,7 +172,7 @@ def parse_query_llm(q: str) -> dict | None:
               "\"floor\":число или null,\"landmark\":ключ достопримечательности или null,\"weight\":0.5..2}],"
               "\"filters\":{\"price_max\":число или отсутствует,\"stars_min\":число или отсутствует}}. "
               "Только характеристики из списка, ничего не выдумывай.\nХарактеристики:\n" + catalog + "\nДостопримечательности: " + lms)
-    res = llm.chat_json(sysmsg, q)
+    res = llm.chat_json(sysmsg, q, timeout=30)   # не заставляем ждать: не успела модель — разбор по правилам
     if not isinstance(res, dict) or not isinstance(res.get("intents"), list):
         return None
     out = []

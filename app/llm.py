@@ -11,6 +11,7 @@ import json
 import os
 import re
 import threading
+import time
 
 import requests
 
@@ -102,11 +103,37 @@ def chat(messages: list[dict], temperature: float = 0.2, timeout: int = 90) -> s
         return None
 
 
-def chat_json(system: str, user: str, temperature: float = 0.0) -> object | None:
+_state: tuple[float, str] = (0.0, "off")
+
+
+def state() -> str:
+    """off — ключа нет; loading — сервис модели ещё не отвечает или модель скачивается; ready — можно спрашивать."""
+    global _state
+    if not available():
+        return "off"
+    now = time.time()
+    if now - _state[0] < 15:
+        return _state[1]
+    st = "loading"
+    try:
+        r = requests.get(f"{settings.llm_base_url}/models", headers={"Authorization": f"Bearer {settings.llm_api_key}"}, timeout=2)
+        if r.status_code == 200:
+            ids = [m.get("id", "") for m in (r.json().get("data") or [])]
+            m = settings.llm_model
+            st = "ready" if (not ids or m in ids or f"{m}:latest" in ids) else "loading"
+        else:
+            st = "ready"        # у части провайдеров списка моделей нет — считаем, что работает
+    except Exception:  # noqa: BLE001
+        st = "loading"
+    _state = (now, st)
+    return st
+
+
+def chat_json(system: str, user: str, temperature: float = 0.0, timeout: int = 90) -> object | None:
     key = system[:60] + "|" + user
     if key in _cache:
         return _cache[key]
-    txt = chat([{"role": "system", "content": system}, {"role": "user", "content": user}], temperature)
+    txt = chat([{"role": "system", "content": system}, {"role": "user", "content": user}], temperature, timeout)
     if not txt:
         return None
     m = re.search(r"```(?:json)?\s*(.*?)```", txt, re.S)

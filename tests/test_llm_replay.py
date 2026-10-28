@@ -32,3 +32,15 @@ def test_live_answer_is_recorded(tmp_path, monkeypatch):
     m = [{"role": "user", "content": "q"}]
     assert llm.chat(m) == "ответ"
     assert json.loads((tmp_path / "rt" / "llm_cache.json").read_text(encoding="utf-8"))[llm._ckey(m)] == "ответ"
+
+
+def test_state_off_without_key(monkeypatch):
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    assert llm.state() == "off"
+
+
+def test_state_loading_when_service_down(monkeypatch):
+    monkeypatch.setattr(settings, "llm_api_key", "k")
+    monkeypatch.setattr(settings, "llm_base_url", "http://127.0.0.1:9/v1")
+    monkeypatch.setattr(llm, "_state", (0.0, "off"))
+    assert llm.state() == "loading"

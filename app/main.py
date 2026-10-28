@@ -57,7 +57,7 @@ async def meta(request: Request):
     seeded = db.row("SELECT value FROM meta WHERE key='seeded_at'")
     return ok({
         "hotels": db.row("SELECT COUNT(*) AS n FROM hotels")["n"], "features": len(registry.all_features()),
-        "llm": llm.available(), "demo_synthetic": bool(getattr(settings, "demo_mode", False)),
+        "llm": llm.available(), "llm_state": llm.state(), "llm_model": settings.llm_model if llm.available() else None, "demo_synthetic": bool(getattr(settings, "demo_mode", False)),
         "region": settings.region_slug, "seeded_at": seeded["value"] if seeded else None, "today": date.today().isoformat(),
         "sources": SOURCES, "scopes": SCOPE_TITLES, "groups": registry.GROUP_TITLES,
         "statuses": reconcile.STATUS_TITLES,
