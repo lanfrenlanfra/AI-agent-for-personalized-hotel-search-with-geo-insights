@@ -50,7 +50,8 @@ const routes = [
   [/^#\/hotelier$/, () => pageHotelier()],
   [/^#\/quality$/, () => pageQuality()],
   [/^#\/features$/, () => pageFeatures()],
-  [/^#\/?(?:\?(.*))?$/, (m) => pageSearch(new URLSearchParams(m[1] || "").get("q") || "")],
+  [/^#\/search\??(.*)$/, (m) => pageSearch(new URLSearchParams(m[1] || "").get("q") || "")],
+  [/^#\/?$/, () => pageFrog()],
 ];
 async function route() {
   const h = location.hash || "#/";
@@ -59,11 +60,163 @@ async function route() {
   $$("[data-nav]").forEach(a => a.classList.toggle("on", a.dataset.nav === nav));
   main.className = "";
   for (const [rx, fn] of routes) { const m = h.match(rx); if (m) { main.innerHTML = '<div class="loading">Загружаем…</div>'; try { await fn(m); } catch (e) { main.innerHTML = `<div class="empty">Не получилось загрузить: ${esc(e.message)}</div>`; } window.scrollTo(0, 0); return; } }
-  main.innerHTML = '<div class="empty">Такой страницы нет. <a href="#/">К поиску</a></div>';
+  main.innerHTML = '<div class="empty">Такой страницы нет. <a href="#/">На главную</a></div>';
 }
 window.addEventListener("hashchange", route);
 
-/* ───────── поиск ───────── */
+
+/* ───────── лягушка: главная ───────── */
+const MASCOT = (cls = "") => `<svg class="mascot ${cls}" viewBox="0 0 120 96" role="img" aria-label="Лягушка"><ellipse cx="60" cy="64" rx="50" ry="30" fill="#b6e34d"/><circle cx="36" cy="34" r="19" fill="#b6e34d"/><circle cx="84" cy="34" r="19" fill="#b6e34d"/><ellipse cx="22" cy="68" rx="8" ry="4.5" fill="#8fcf2f" opacity=".55"/><ellipse cx="98" cy="68" rx="8" ry="4.5" fill="#8fcf2f" opacity=".55"/><circle cx="36" cy="33" r="12" fill="#fff"/><circle cx="84" cy="33" r="12" fill="#fff"/><circle cx="38" cy="34" r="6.5" fill="#0f3d2a"/><circle cx="82" cy="34" r="6.5" fill="#0f3d2a"/><circle cx="40.3" cy="31.5" r="2.1" fill="#fff"/><circle cx="84.3" cy="31.5" r="2.1" fill="#fff"/><circle cx="55" cy="55" r="1.9" fill="#0f3d2a"/><circle cx="65" cy="55" r="1.9" fill="#0f3d2a"/><path d="M31 66Q60 90 89 66" stroke="#0f3d2a" stroke-width="4.5" fill="none" stroke-linecap="round"/></svg>`;
+const FROG_MINI = `<svg width="26" height="22" viewBox="0 0 120 96" aria-hidden="true"><ellipse cx="60" cy="64" rx="50" ry="30" fill="#0f3d2a"/><circle cx="36" cy="34" r="19" fill="#0f3d2a"/><circle cx="84" cy="34" r="19" fill="#0f3d2a"/><circle cx="36" cy="33" r="11" fill="#b6e34d"/><circle cx="84" cy="33" r="11" fill="#b6e34d"/><circle cx="38" cy="34" r="5.5" fill="#0f3d2a"/><circle cx="82" cy="34" r="5.5" fill="#0f3d2a"/><path d="M31 66Q60 88 89 66" stroke="#b6e34d" stroke-width="5" fill="none" stroke-linecap="round"/></svg>`;
+const CAM = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.4h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.6"/></svg>`;
+const HINTS = ["тихий номер с видом на закат над Байкалом, зимой", "у берега, с баней и тёплым номером, до 7000 ₽", "Ольхон, вид на скалу Шаманка, можно с собакой"];
+let frogState = null;               // последний результат: возвращаемся на главную — он на месте
+const sayCache = {};
+let frogLLM = "off";
+
+function fitImage(file, max = 768) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg", 0.82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("Не получилось открыть картинку")); };
+    img.src = url;
+  });
+}
+function matchWord(c) {
+  if (c.label === "Мало данных") return "Пока мало данных";
+  return c.score >= 85 ? "Почти идеально" : c.score >= 65 ? "Хорошо подходит" : c.score >= 45 ? "Подходит частично" : "Скорее не то";
+}
+function freshText(p) {
+  if (p.freshest_days == null) return "";
+  const d = p.freshest_days;
+  return d <= 1 ? "данные проверены сегодня" : `данные проверены ${d} дн. назад`;
+}
+function pickHtml(c, i) {
+  const p = c.proof;
+  const proofParts = [];
+  if (p.geo) proofParts.push(`по координатам и карте проверено: ${p.geo}`);
+  if (freshText(p)) proofParts.push(freshText(p));
+  if (p.disputed) proofParts.push(`источники расходятся: ${p.disputed}`);
+  if (p.stale) proofParts.push(`устарело: ${p.stale}`);
+  if (!proofParts.length) proofParts.push("пока только данные каталога");
+  return `<article class="pick" data-id="${esc(c.id)}">
+    <a class="ph" href="#/hotel/${encodeURIComponent(c.id)}" aria-label="${esc(c.name)}" ${photoBox(c)}><span class="rank" aria-label="Вариант ${i + 1}">${i + 1}</span>${c.photo ? "" : initials(c.name)}</a>
+    <div class="bd">
+      <div class="hd"><h2><a href="#/hotel/${encodeURIComponent(c.id)}">${esc(c.name)}</a></h2>${c.price ? `<div class="price">от ${money(c.price)}<small>за ночь</small></div>` : ""}</div>
+      <div class="where">${[c.stars ? stars(c.stars) : "", c.rating ? `${rate(c.rating)}${c.reviews ? ` (${c.reviews})` : ""}` : "", shortAddr(c.address)].filter(Boolean).map(esc).join(" · ")}</div>
+      <div class="match" role="img" aria-label="Совпадение ${c.score}%"><div class="tr"><i style="width:${Math.max(4, c.score)}%"></i></div><b>${matchWord(c)}</b><span class="muted num">${c.score}%</span></div>
+      <div class="say"><div class="av" aria-hidden="true">${FROG_MINI}</div><div class="bubble${!sayCache[c.id + "|" + c.score] && frogLLM !== "off" ? " wait" : ""}" data-say="${esc(c.id)}">${esc(sayCache[c.id + "|" + c.score] || c.say)}</div></div>
+      ${(c.pros.length || c.cons.length) ? `<div class="tags">${c.pros.map(t => `<span class="tag${t.geo ? " geo" : ""}" title="${t.geo ? "посчитано по координатам и карте" : ""}">${esc(t.title)}</span>`).join("")}${c.cons.map(t => `<span class="tag no">${esc(t.title)}${t.text ? ": " + esc(t.text) : ""}</span>`).join("")}</div>` : ""}
+      ${c.ask.length ? `<div class="ask-l"><b>Лучше уточнить:</b> ${c.ask.map(a => `${esc(a.title.toLowerCase())} <span class="muted">(${esc(a.why)})</span>`).join(", ")}</div>` : ""}
+      <div class="proof"><span>${esc(proofParts.join(" · "))}</span><span class="sp"></span><a href="#/hotel/${encodeURIComponent(c.id)}">Откуда это известно</a>${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">На Островке ↗</a>` : ""}</div>
+    </div></article>`;
+}
+function understoodHtml(u) {
+  if (!u) return "";
+  const chips = (u.intents || []).map(i => `<span class="chip">${esc(i.title)}</span>`).join("") + filterChips(u.filters || {}).map(([, t]) => `<span class="chip flt">${esc(t)}</span>`).join("");
+  let note = "";
+  if (u.image_read) note = `<div class="note">На фото я увидела: ${esc(u.image_note)}</div>`;
+  else if (u.image_given) note = `<div class="note">Фото я пока не разглядела (нужна модель, которая видит картинки), поэтому искала только по тексту.</div>`;
+  return `<div class="understood">${chips ? `<div class="chips"><span>Я поняла так:</span>${chips}</div>` : `<div class="note">Не услышала конкретных пожеланий. Расскажите про вид, тишину, баню или путь до берега, и я подберу точнее.</div>`}${note}</div>`;
+}
+function coverText(cov) {
+  if (!cov || !cov.total) return "";
+  const more = cov.pending > 0 ? ` <span class="pulse" aria-hidden="true"></span>Ещё ${cov.pending} проверяю, список обновится сам.` : "";
+  return `<div class="cover" role="status">Внимательно изучила ${cov.enriched} из ${cov.total} отелей Байкала.${more}</div>`;
+}
+function upgradeSays(r, text) {
+  if (r.llm_state === "off") return;
+  r.top.forEach(c => {
+    const k = c.id + "|" + c.score, el = () => document.querySelector(`.bubble[data-say="${CSS.escape(c.id)}"]`);
+    if (sayCache[k]) { const e = el(); if (e) { e.textContent = sayCache[k]; e.classList.remove("wait"); } return; }
+    api("/api/frog/say", { body: { hotel_id: c.id, text, parsed: r.parsed } }).then(a => {
+      if (a.by === "llm") sayCache[k] = a.text;
+      const e = el(); if (e) { e.textContent = a.text; e.classList.remove("wait"); }
+    }).catch(() => { const e = el(); if (e) e.classList.remove("wait"); });
+  });
+}
+function renderOut(st) {
+  const out = $("#out");
+  if (!out) return;
+  const r = st.data;
+  frogLLM = r.llm_state || "off";
+  if (!r.top.length) { out.innerHTML = '<div class="empty">Ничего подходящего не нашлось. Попробуйте описать иначе.</div>'; return; }
+  out.innerHTML = understoodHtml(st.understood) + `<div class="top3">${r.top.map(pickHtml).join("")}</div>` + coverText(r.coverage)
+    + `<div class="cover" style="display:flex;gap:10px;justify-content:center;padding-top:18px"><a class="btn ghost" href="#/compare?ids=${r.top.map(c => encodeURIComponent(c.id)).join(",")}">Сравнить эти отели</a><button class="quiet" id="again" type="button">Искать заново</button></div>`;
+  $("#again").onclick = () => { frogState = null; pageFrog(); window.scrollTo(0, 0); };
+  upgradeSays(r, st.text);
+}
+let frogPoll = null;
+function pollFrog(st, n = 0) {
+  clearTimeout(frogPoll);
+  const cov = st.data.coverage || {};
+  if (!(cov.pending > 0 && cov.enabled) || n >= 10) return;
+  frogPoll = setTimeout(async () => {
+    if (frogState !== st || !$("#out")) return;
+    try {
+      const r = await api("/api/frog/ask", { body: { text: st.text, parsed: st.data.parsed, passive: true } });
+      const changed = JSON.stringify(r.top.map(c => [c.id, c.score])) !== JSON.stringify(st.data.top.map(c => [c.id, c.score]));
+      st.data = { ...r, parsed: st.data.parsed };
+      if (changed) renderOut(st); else { const cv = $(".cover[role=status]"); if (cv) cv.outerHTML = coverText(r.coverage); }
+    } catch {}
+    pollFrog(st, n + 1);
+  }, 7000);
+}
+async function pageFrog() {
+  main.className = "";
+  const st0 = frogState;
+  let image = st0 ? st0.image : null;
+  main.innerHTML = `<section class="frog-home${st0 ? " done" : ""}" id="fh">
+    ${MASCOT()}
+    <h1>${st0 ? "Вот что я нашла" : "Какой отдых на Байкале вы хотите?"}</h1>
+    <p class="sub">Расскажите своими словами, можно приложить фото-референс. Я подберу три отеля и проверю их по карте.</p>
+    <form class="ask-card" id="af">
+      <label for="q" style="position:absolute;left:-999px">Опишите, какой отель вы ищете</label>
+      <textarea id="q" rows="3" maxlength="600" placeholder="Например: тихий номер с видом на закат, рядом с берегом, зимой, с баней">${esc(st0 ? st0.text : "")}</textarea>
+      <div class="ask-row">
+        <button type="button" class="attach" id="pick">${CAM}<span>Фото-референс</span></button><input type="file" id="file" accept="image/*" hidden>
+        <span id="thumb"></span><span class="grow"></span>
+        <button type="submit" class="go" id="go">${FROG_MINI}<span>Найти</span></button>
+      </div>
+    </form>
+    ${st0 ? "" : `<div class="hints">${HINTS.map(h => `<button type="button" class="ex">${esc(h)}</button>`).join("")}</div>`}
+    <span class="region">Только Байкал</span>
+  </section><section id="out" aria-live="polite"></section>`;
+  const showThumb = () => { $("#thumb").innerHTML = image ? `<span class="thumb"><img src="${image}" alt="Ваш референс"><span>фото добавлено</span><button type="button" id="rm" aria-label="Убрать фото">×</button></span>` : ""; const rm = $("#rm"); if (rm) rm.onclick = () => { image = null; showThumb(); }; };
+  showThumb();
+  $("#pick").onclick = () => $("#file").click();
+  $("#file").onchange = async e => { const f = e.target.files[0]; if (!f) return; try { image = await fitImage(f); showThumb(); } catch (err) { toast(err.message); } e.target.value = ""; };
+  $$(".ex").forEach(b => b.onclick = () => { $("#q").value = b.textContent; $("#q").focus(); });
+  $("#q").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#af").requestSubmit(); } });
+  $("#af").onsubmit = async e => {
+    e.preventDefault();
+    const text = $("#q").value.trim();
+    if (text.length < 3 && !image) { toast("Опишите, какой отель ищете, или добавьте фото"); return; }
+    clearTimeout(frogPoll);
+    const fh = $("#fh"), go = $("#go"), out = $("#out");
+    fh.classList.add("done"); $("h1", fh).textContent = "Ква! Ищу для вас"; $(".mascot", fh).classList.add("hop"); go.disabled = true; $(".hints") && $(".hints").remove();
+    out.innerHTML = `<div class="thinking"><b>Лягушка работает</b><span>Читает запрос${image ? " и смотрит фото" : ""}, ищет по каталогу Островка, сверяет карту и свежесть данных. Это может занять до минуты.</span></div>`;
+    try {
+      const r = await api("/api/frog/ask", { body: { text, image } });
+      const st = { text, image, data: r, understood: r.understood };
+      frogState = st;
+      $(".mascot", fh).classList.remove("hop"); $("h1", fh).textContent = "Вот что я нашла"; go.disabled = false;
+      renderOut(st); pollFrog(st);
+      out.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      $(".mascot", fh).classList.remove("hop"); $("h1", fh).textContent = "Что-то пошло не так"; go.disabled = false;
+      out.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+    }
+  };
+  if (st0) renderOut(st0), pollFrog(st0);
+}
+
+/* ───────── подробный поиск ───────── */
 const EXAMPLES = ["тихий номер с видом на закат над Байкалом зимой", "у берега, с баней, до 7000 ₽", "Листвянка, пешком до Шаман-камня, тепло в номере", "Ольхон, вид на скалу Шаманка, с собакой"];
 let lastSearch = null;
 
@@ -98,9 +251,9 @@ async function pageSearch(q) {
   <div class="wrap">
   <div class="legend" aria-label="Обозначения"><span>${cert("confirmed")}подтверждено</span><span>${cert("likely")}вероятно</span><span>${cert("weak")}слабые данные</span><span>${cert("disputed")}источники спорят</span><span>${cert("stale")}устарело</span><span>${cert("unknown")}данных нет</span></div>
   <div class="split"><div class="results" id="results"></div><div class="stick"><div id="map"></div></div></div></div>`;
-  $("#askForm").onsubmit = e => { e.preventDefault(); const v = $("#q").value.trim(); location.hash = "#/?q=" + encodeURIComponent(v); };
+  $("#askForm").onsubmit = e => { e.preventDefault(); const v = $("#q").value.trim(); location.hash = "#/search?q=" + encodeURIComponent(v); };
   $("#q").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#askForm").requestSubmit(); } });
-  $$(".ex").forEach(b => b.onclick = () => { location.hash = "#/?q=" + encodeURIComponent(b.textContent); });
+  $$(".ex").forEach(b => b.onclick = () => { location.hash = "#/search?q=" + encodeURIComponent(b.textContent); });
   initMap();
   await runSearch(q, null);
 }
@@ -116,7 +269,7 @@ async function runSearch(q, override, passive) {
   renderCrit(res.parsed, q);
   const cov = res.coverage || {};
   // пока фоновая проверка идёт, тихо обновляем выдачу: новые отели появляются сами
-  if (cov.pending > 0 && cov.enabled) pollTimer = setTimeout(() => { if (location.hash.startsWith("#/") && !location.hash.startsWith("#/hotel")) runSearch(q, override, true).catch(() => {}); }, 6000);
+  if (cov.pending > 0 && cov.enabled) pollTimer = setTimeout(() => { if (location.hash.startsWith("#/search")) runSearch(q, override, true).catch(() => {}); }, 6000);
   if (!res.results.length && !(cov.candidates || []).length) { box.innerHTML = '<div class="empty">Ничего не нашлось. Попробуйте описать иначе или уберите часть условий.</div>'; return; }
   box.innerHTML = coverageHtml(cov, res.results.length) + res.results.map(cardHtml).join("") + candidatesHtml(cov);
   $$(".cmp input", box).forEach(c => { c.checked = state.compare.has(c.value); c.onchange = () => { c.checked ? state.compare.add(c.value) : state.compare.delete(c.value); cmpBar(); }; });

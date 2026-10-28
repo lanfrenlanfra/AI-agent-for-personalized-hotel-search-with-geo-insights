@@ -312,7 +312,7 @@ def evaluate_intent(spec: dict, it: dict, hotel_facts: dict[str, list[dict]]) ->
         verdict = "stale" if verdict in ("ok", "maybe") else verdict
     return {**base, "verdict": verdict, "match": round(m, 2), "expected": round(expected, 3), "text": f["value"].get("summary") or "",
             "status": f["status"], "confidence": round(f["confidence"], 2), "age_days": _age_days(f["observed_at"]),
-            "scope": f["scope"], "scope_title": SCOPE_TITLES.get(f["scope"], f["scope"]), "conflict": (f["conflict"] or {}).get("text") if f["conflict"] else None}
+            "scope": f["scope"], "scope_title": SCOPE_TITLES.get(f["scope"], f["scope"]), "computed": bool(spec.get("computed")), "conflict": (f["conflict"] or {}).get("text") if f["conflict"] else None}
 
 
 def score_hotel(hotel: dict, intents: list[dict], filters: dict, terms: list[str], facts: dict[str, list[dict]]) -> dict:

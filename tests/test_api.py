@@ -100,3 +100,32 @@ def test_search_reports_coverage_and_jobs(client):
     assert p["results"]
     jobs = client.get("/api/jobs").json()
     assert jobs["jobs"] == [] and jobs["total"] == 0
+
+
+def test_frog_top3_and_say(client):
+    r = client.post("/api/frog/ask", json={"text": "тихий номер во двор с видом на закат"}).json()
+    assert r["understood"]["intents"] and 1 <= len(r["top"]) <= 3
+    t = r["top"][0]
+    assert {"pros", "cons", "ask", "proof", "score"} <= set(t)
+    # опрос прогресса по уже разобранному запросу
+    r2 = client.post("/api/frog/ask", json={"text": "x", "parsed": r["parsed"], "passive": True}).json()
+    assert r2["top"] and "understood" not in r2
+    s = client.post("/api/frog/say", json={"hotel_id": t["id"], "text": "тихий номер", "parsed": r["parsed"]}).json()
+    assert s["text"] and s["by"] in ("llm", "template")
+    assert client.post("/api/frog/ask", json={"text": ""}).status_code == 400
+
+
+def test_frog_reads_image(client, monkeypatch):
+    from app import llm
+    monkeypatch.setattr(llm, "chat", lambda messages, *a, **k: "Деревянный дом у воды, на озере лёд, вечер.")
+    img = "data:image/jpeg;base64,/9j/4AAQ"
+    r = client.post("/api/frog/ask", json={"text": "тихо", "image": img}).json()
+    u = r["understood"]
+    assert u["image_given"] and u["image_read"] and "лёд" in u["image_note"]
+
+
+def test_frog_image_not_read(client, monkeypatch):
+    from app import llm
+    monkeypatch.setattr(llm, "chat", lambda *a, **k: None)
+    r = client.post("/api/frog/ask", json={"text": "тихо", "image": "data:image/jpeg;base64,/9j/4AAQ"}).json()
+    assert r["understood"]["image_given"] and not r["understood"]["image_read"] and r["top"]

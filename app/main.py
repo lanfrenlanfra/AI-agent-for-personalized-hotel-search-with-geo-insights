@@ -17,7 +17,7 @@ from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import catalog, db, enrich, freshness, hotelier, horizon, ingest, llm, metrics, ostrovok, pipeline, reconcile, registry, search
+from . import frog, catalog, db, enrich, freshness, hotelier, horizon, ingest, llm, metrics, ostrovok, pipeline, reconcile, registry, search
 from .collectors.base import SCOPE_TITLES, SOURCES
 from .config import BASE_DIR, settings
 
@@ -174,6 +174,54 @@ async def api_search(request: Request):
     res = search.search(q, limit, parsed)
     # passive: опрос прогресса из интерфейса — не ставим новые задачи, только обновляем выдачу и статусы
     return ok(await run_in_threadpool(enrich.augment, parsed, res, not passive))
+
+
+async def frog_ask(request: Request):
+    """Сценарий главной страницы: описание (+ фото) → топ-3. С parsed — только обновить выдачу (опрос прогресса)."""
+    d = await body(request)
+    text = (d.get("text") or "").strip()[:600]
+    image = d.get("image") if isinstance(d.get("image"), str) else None
+    passive = bool(d.get("passive"))
+    if isinstance(d.get("parsed"), dict) and isinstance(d["parsed"].get("intents"), list):
+        parsed = {**d["parsed"], "text_terms": d["parsed"].get("text_terms") or []}
+        und = None
+    else:
+        if len(text) < 3 and not image:
+            return err("Опишите, какой отель вы ищете")
+        und = await run_in_threadpool(frog.understand, text, image)
+        parsed = und["parsed"]
+    res = search.search(text, 200, parsed)
+    res = await run_in_threadpool(enrich.augment, parsed, res, not passive)
+    out = {"top": frog.top(res["results"], 3, text), "coverage": res.get("coverage"), "parsed": {k: v for k, v in parsed.items() if k != "text_terms"},
+           "llm_state": llm.state()}
+    if und:
+        out["understood"] = {k: v for k, v in und.items() if k != "parsed"}
+        out["understood"]["intents"] = [{"title": i["title"], "want": i.get("want", True)} for i in parsed["intents"]]
+        out["understood"]["filters"] = parsed.get("filters") or {}
+        out["understood"]["parsed_by"] = parsed.get("parsed_by")
+    return ok(out)
+
+
+_say_cache: dict[str, dict] = {}
+
+
+async def frog_say(request: Request):
+    """Голос лягушки для одного отеля (отдельным запросом, чтобы карточки появлялись сразу)."""
+    d = await body(request)
+    hid, wish = d.get("hotel_id"), (d.get("text") or "")[:600]
+    parsed = d.get("parsed") or {}
+    parsed = {**parsed, "text_terms": parsed.get("text_terms") or []}
+    res = search.search(wish, 500, parsed)
+    r = next((x for x in res["results"] if x["id"] == hid), None)
+    if not r:
+        return err("отель не найден", 404)
+    c = frog.card(r)
+    key = f"{hid}|{wish}|{c['score']}|{len(c['pros'])}{len(c['cons'])}{len(c['ask'])}"
+    if key not in _say_cache:
+        _say_cache[key] = await run_in_threadpool(frog.say, c, wish)
+        if len(_say_cache) > 300:
+            _say_cache.clear()
+    return ok({**_say_cache[key], "card": c})
 
 
 async def api_jobs(request: Request):
@@ -427,6 +475,8 @@ routes = [
     Route("/api/hotels/{hid}/refresh", hotel_refresh, methods=["POST"]),
     Route("/api/hotels/{hid}/demo/building", demo_building, methods=["POST", "DELETE"]),
     Route("/api/search", api_search, methods=["GET", "POST"]),
+    Route("/api/frog/ask", frog_ask, methods=["POST"]),
+    Route("/api/frog/say", frog_say, methods=["POST"]),
     Route("/api/jobs", api_jobs),
     Route("/api/parse", api_parse),
     Route("/api/compare", api_compare),

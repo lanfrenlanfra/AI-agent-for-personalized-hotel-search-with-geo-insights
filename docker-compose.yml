@@ -22,7 +22,7 @@ services:
       start_period: 150s
     restart: unless-stopped
 
-  # LLM «из коробки»: Ollama поднимается рядом и сама скачивает небольшую модель (≈2 ГБ, один раз).
+  # LLM «из коробки»: Ollama поднимается рядом и сама скачивает небольшую модель (≈3,3 ГБ, один раз; понимает и картинки).
   # Включается профилем llm (COMPOSE_PROFILES=llm в .env.example). Приложение не ждёт загрузки модели:
   # пока она качается, разбор идёт по правилам и записанным ответам, потом подключается LLM.
   # Свой API (Yandex, OpenAI, Ollama на вашем компьютере) — уберите профиль и впишите LLM_* в .env.
@@ -49,7 +49,7 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: "http://ollama:11434"
-      PULL_MODEL: "${LLM_MODEL:-qwen2.5:3b}"
+      PULL_MODEL: "${LLM_MODEL:-gemma3:4b}"
     entrypoint: ["sh", "-c", "ollama pull \"$$PULL_MODEL\" && ollama run \"$$PULL_MODEL\" ok >/dev/null 2>&1; echo \"модель $$PULL_MODEL готова\""]
     restart: "no"
 
