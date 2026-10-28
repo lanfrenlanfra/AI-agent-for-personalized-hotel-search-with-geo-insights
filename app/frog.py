@@ -92,20 +92,49 @@ def vague_or_off(text: str) -> tuple[str, str]:
 LLM_KINDS = ("greet", "thanks", "about", "region", "vague", "off")
 
 
-def chat_reply(text: str, kind: str, base: str, live: bool = False) -> dict:
+def _hist_messages(history: list | None, n: int = 6) -> list[dict]:
+    out = []
+    for h in (history or [])[-n:]:
+        if isinstance(h, dict) and isinstance(h.get("text"), str) and h["text"].strip():
+            out.append({"role": "user" if h.get("role") == "user" else "assistant", "content": h["text"].strip()[:400]})
+    return out
+
+
+def chat_reply(text: str, kind: str, base: str, live: bool = False, history: list | None = None) -> dict:
     """Ответ лягушки. По умолчанию мгновенный шаблон; живой ответ модели (live=True) запрашивается отдельно и подменяет шаблон на странице."""
     if live and llm.usable() and kind in LLM_KINDS:
         out = llm.chat([
             {"role": "system", "content": "Ты — лягушка Ква, весёлый и тёплый агент по отелям Байкала. Ответь гостю на его реплику в 1–3 коротких предложениях по-русски, с лёгким юмором, "
                                           "и мягко подведи к тому, чтобы он описал, какой отдых или отель на Байкале ищет (вид, тишина, баня, берег, бюджет, с кем едет). "
-                                          "Если он спрашивает про другое место или тему, шутливо скажи, что умеешь только отели Байкала. Ничего не выдумывай про конкретные отели, без списков и эмодзи, можно начать с «Ква!»."},
-            {"role": "user", "content": text}], temperature=0.8, timeout=30)
+                                          "Если он спрашивает про другое место или тему, шутливо скажи, что умеешь только отели Байкала. Учитывай предыдущие реплики диалога. "
+                                          "Ничего не выдумывай про конкретные отели, без списков и эмодзи, можно начать с «Ква!»."},
+            *_hist_messages(history), {"role": "user", "content": text}], temperature=0.8, timeout=30)
         if out:
             return {"text": out.strip(), "by": "llm"}
     return {"text": base, "by": "template"}
 
 
-def understand(text: str, image: str | None) -> dict:
+_RESET = re.compile(r"заново|с нуля|новый поиск|начн[её]м сначала|начать сначала|забудь|совсем другое|другой отель", re.I)
+
+
+def merge_wish(prev: str, new: str, history: list | None = None) -> str:
+    """Дополняет прежние пожелания новой репликой («забыла, хочу ещё с бассейном»). Модель, если жива, умеет и заменять передуманное."""
+    prev, new = (prev or "").strip(), (new or "").strip()
+    if not prev or _RESET.search(new):
+        return _RESET.sub("", new).strip(" .,") or new
+    if llm.state() == "ready":
+        d = llm.chat_json(
+            "Ты помогаешь агенту собирать пожелания гостя к отелю на Байкале. Даны прежние пожелания и новая реплика гостя. Верни ТОЛЬКО JSON "
+            '{"query": "..."}: одно связное описание всех актуальных пожеланий по-русски (до 300 символов), без пересказа диалога. '
+            "Новые пожелания добавляй к прежним; если гость передумал или поправил себя, новое заменяет старое; ничего не выдумывай.",
+            json.dumps({"прежние_пожелания": prev, "новая_реплика": new}, ensure_ascii=False), timeout=20)
+        q = d.get("query") if isinstance(d, dict) else None
+        if isinstance(q, str) and 3 <= len(q.strip()) <= 400:
+            return q.strip()
+    return f"{prev}. {new}"
+
+
+def understand(text: str, image: str | None, wish: str = "", history: list | None = None) -> dict:
     """Склеивает текст и описание картинки в один запрос и разбирает его. Если это не поиск, готовит ответ лягушки."""
     img = describe_image(image) if image else None
     res = {"text": text.strip(), "image_given": bool(image), "image_read": img is not None, "image_note": None, "image_off": False, "image_what": None, "chat": None}
@@ -123,13 +152,16 @@ def understand(text: str, image: str | None) -> dict:
         res["chat"] = {"kind": st[0], **chat_reply(text, st[0], st[1])}
         res["parsed"] = {"query": text, "intents": [], "filters": {}, "text_terms": [], "parsed_by": "rules"}
         return res
-    rules = search.parse_query(full, use_llm=False)          # дёшево: правила
-    if not rules["intents"] and not rules.get("filters") and not (img and img["relevant"]) and not _HOTELISH.search(full):
-        kind, base = vague_or_off(full)                      # про отели тут нет ничего: отвечаем сразу, модель не ждём
+    new_rules = search.parse_query(full, use_llm=False)      # дёшево: правила, только по новой реплике
+    has_new = bool(new_rules["intents"] or new_rules.get("filters") or (img and img["relevant"]))
+    if not has_new:
+        kind, base = vague_or_off(full) if not (img and img["relevant"]) else ("image_vague", "Ква! Фото красивое, но я не уловила, что на нём для вас главное. Добавьте пару слов: тишина, баня, берег, бюджет?")
         res["chat"] = {"kind": kind, **chat_reply(text or full, kind, base)}
-        res["parsed"] = rules
+        res["parsed"] = new_rules
         return res
-    parsed = search.parse_query(full, use_llm=llm.state() == "ready")   # модель разбирает запрос, только если она живая
+    prev = (wish or "").strip()[:600]
+    merged = merge_wish(prev, full, history) if prev else full
+    parsed = search.parse_query(merged, use_llm=llm.state() == "ready")   # модель разбирает запрос, только если она живая
     if not parsed["intents"] and not parsed.get("filters"):
         if img and img["relevant"]:
             kind, base = "image_vague", "Ква! Фото красивое, но я не уловила, что на нём для вас главное. Добавьте пару слов: тишина, баня, берег, бюджет?"
@@ -137,6 +169,13 @@ def understand(text: str, image: str | None) -> dict:
             kind, base = vague_or_off(text or full)
         res["chat"] = {"kind": kind, **chat_reply(text or full, kind, base)}
     res["parsed"] = parsed
+    res["wish"] = merged
+    res["ack"] = None
+    if prev:
+        before = {i["title"] for i in search.parse_query(prev, use_llm=False)["intents"]}
+        added = [i["title"].lower() for i in parsed["intents"] if i["title"] not in before]
+        res["ack"] = (f"Ква! Добавила к прежнему: {', '.join(added)}. Обновила тройку." if added
+                      else "Ква! Учла вашу поправку и пересобрала тройку.")
     return res
 
 

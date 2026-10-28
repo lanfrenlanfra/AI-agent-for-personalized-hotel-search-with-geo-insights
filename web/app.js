@@ -70,7 +70,6 @@ const MASCOT = (cls = "") => `<svg class="mascot ${cls}" viewBox="0 0 120 96" ro
 const FROG_MINI = `<svg width="26" height="22" viewBox="0 0 120 96" aria-hidden="true"><ellipse cx="60" cy="64" rx="50" ry="30" fill="#0f3d2a"/><circle cx="36" cy="34" r="19" fill="#0f3d2a"/><circle cx="84" cy="34" r="19" fill="#0f3d2a"/><circle cx="36" cy="33" r="11" fill="#b6e34d"/><circle cx="84" cy="33" r="11" fill="#b6e34d"/><circle cx="38" cy="34" r="5.5" fill="#0f3d2a"/><circle cx="82" cy="34" r="5.5" fill="#0f3d2a"/><path d="M31 66Q60 88 89 66" stroke="#b6e34d" stroke-width="5" fill="none" stroke-linecap="round"/></svg>`;
 const CAM = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.4h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.6"/></svg>`;
 const HINTS = ["тихий номер с видом на закат над Байкалом, зимой", "у берега, с баней и тёплым номером, до 7000 ₽", "Ольхон, вид на скалу Шаманка, можно с собакой"];
-let frogState = null;               // последний результат: возвращаемся на главную — он на месте
 const sayCache = {};
 let frogLLM = "off";
 
@@ -141,16 +140,47 @@ function upgradeSays(r, text) {
     }).catch(() => { const e = el(); if (e) e.classList.remove("wait"); });
   });
 }
-function renderOut(st) {
-  const out = $("#out");
-  if (!out) return;
-  const r = st.data;
-  frogLLM = r.llm_state || "off";
-  if (!r.top.length) { out.innerHTML = '<div class="empty">Ничего подходящего не нашлось. Попробуйте описать иначе.</div>'; return; }
-  out.innerHTML = understoodHtml(st.understood) + `<div class="top3">${r.top.map(pickHtml).join("")}</div>` + coverText(r.coverage)
-    + `<div class="cover" style="display:flex;gap:10px;justify-content:center;padding-top:18px"><a class="btn ghost" href="#/compare?ids=${r.top.map(c => encodeURIComponent(c.id)).join(",")}">Сравнить эти отели</a><button class="quiet" id="again" type="button">Искать заново</button></div>`;
-  $("#again").onclick = () => { frogState = null; pageFrog(); window.scrollTo(0, 0); };
-  upgradeSays(r, st.text);
+/* ───────── чат с лягушкой: история видна гостю и уходит на сервер как контекст ───────── */
+const CHAT_KEY = "frog_chat";
+let chat = (() => {
+  try { const c = JSON.parse(sessionStorage.getItem(CHAT_KEY)); if (c && Array.isArray(c.turns)) return { turns: c.turns.filter(t => !t.pending), wish: c.wish || "" }; } catch {}
+  return { turns: [], wish: "" };
+})();
+let chatBusy = false, lastImage = null;
+function saveChat() {
+  try { sessionStorage.setItem(CHAT_KEY, JSON.stringify({ turns: chat.turns.filter(t => !t.pending).slice(-14).map(t => ({ ...t, img: undefined, image: undefined })), wish: chat.wish })); } catch {}
+}
+function lastSearch() { for (let i = chat.turns.length - 1; i >= 0; i--) if (chat.turns[i].kind === "search") return chat.turns[i]; return null; }
+function chatHistory() {
+  return chat.turns.filter(t => !t.pending).slice(-8).map(t => t.role === "user" ? { role: "user", text: t.text || "(приложил фото)" }
+    : { role: "frog", text: t.kind === "search" ? `${t.ack || "Ква!"} Показала: ${t.data.top.map(c => c.name).join(", ")}` : t.text });
+}
+const BUBBLE = (inner, cls = "", attrs = "") => `<div class="msg fr say"><div class="av" aria-hidden="true">${FROG_MINI}</div><div class="bubble ${cls}" ${attrs}>${inner}</div></div>`;
+function turnHtml(t, i, isLast) {
+  if (t.role === "user") {
+    const img = t.hasImage ? (t.img ? `<img class="mi" src="${t.img}" alt="Ваше фото">` : `<span class="muted fotoflag">${CAM} фото</span>`) : "";
+    return `<div class="msg me" data-t="${i}"><div class="bub">${img}${t.text ? `<span>${esc(t.text)}</span>` : ""}</div></div>`;
+  }
+  if (t.pending) return `<div data-t="${i}">${BUBBLE('<i></i><i></i><i></i><span class="sr">Лягушка думает</span>', "typing", 'role="status"')}</div>`;
+  if (t.kind === "chat") {
+    return `<div data-t="${i}">${BUBBLE(esc(t.text), "", `data-chat="${i}"`)}${isLast && t.hints && t.hints.length ? `<div class="hints">${t.hints.map(h => `<button type="button" class="ex2">${esc(h)}</button>`).join("")}</div>` : ""}</div>`;
+  }
+  const r = t.data;
+  if (!isLast) {
+    const names = r.top.map((c, k) => `<a href="#/hotel/${encodeURIComponent(c.id)}">${k + 1}. ${esc(c.name)} <span class="muted">${c.score}%</span></a>`).join("");
+    return `<div data-t="${i}">${BUBBLE(`${esc(t.ack || "Ква! Вот что нашла.")}<span class="past">${names}</span>`)}</div>`;
+  }
+  if (!r.top.length) return `<div data-t="${i}">${BUBBLE("Ничего подходящего не нашлось. Попробуйте описать иначе.")}</div>`;
+  return `<div data-t="${i}">${t.ack ? BUBBLE(esc(t.ack)) : ""}${understoodHtml(t.understood)}<div class="top3">${r.top.map(pickHtml).join("")}</div>${coverText(r.coverage)}
+    <div class="cover" style="display:flex;gap:10px;justify-content:center;padding-top:18px"><a class="btn ghost" href="#/compare?ids=${r.top.map(c => encodeURIComponent(c.id)).join(",")}">Сравнить эти отели</a></div></div>`;
+}
+function renderThread() {
+  const th = $("#thread");
+  if (!th) return;
+  th.innerHTML = chat.turns.map((t, i) => turnHtml(t, i, i === chat.turns.length - 1 || (t.kind === "search" && t === lastSearch() && !chat.turns.slice(i + 1).some(x => x.kind === "search")))).join("");
+  $$(".ex2", th).forEach(b => b.onclick = () => { if (chatBusy) return; askFrog(b.textContent, null); });
+  const ls = lastSearch();
+  if (ls) { frogLLM = ls.data.llm_state || "off"; upgradeSays(ls.data, ls.text); }
 }
 let frogPoll = null;
 function pollFrog(st, n = 0) {
@@ -158,36 +188,77 @@ function pollFrog(st, n = 0) {
   const cov = st.data.coverage || {};
   if (!(cov.pending > 0 && cov.enabled) || n >= 10) return;
   frogPoll = setTimeout(async () => {
-    if (frogState !== st || !$("#out")) return;
+    if (lastSearch() !== st || !$("#thread")) return;
     try {
       const r = await api("/api/frog/ask", { body: { text: st.text, parsed: st.data.parsed, passive: true } });
       const changed = JSON.stringify(r.top.map(c => [c.id, c.score])) !== JSON.stringify(st.data.top.map(c => [c.id, c.score]));
       st.data = { ...r, parsed: st.data.parsed };
-      if (changed) renderOut(st); else { const cv = $(".cover[role=status]"); if (cv) cv.outerHTML = coverText(r.coverage); }
+      if (changed) { renderThread(); saveChat(); } else { const cv = $(".cover[role=status]"); if (cv) cv.outerHTML = coverText(r.coverage); }
     } catch {}
     pollFrog(st, n + 1);
   }, 7000);
 }
+function upgradeChat(i, text, hist) {
+  api("/api/frog/chat", { body: { text, kind: chat.turns[i].replyKind, history: hist } }).then(c => {
+    if (!c.text || !chat.turns[i] || chat.turns[i].kind !== "chat") return;
+    chat.turns[i].text = c.text; saveChat();
+    const el = document.querySelector(`.bubble[data-chat="${i}"]`); if (el) el.textContent = c.text;
+  }).catch(() => {});
+}
+async function askFrog(text, image) {
+  if (chatBusy) return;
+  chatBusy = true; clearTimeout(frogPoll);
+  const hist = chatHistory();
+  if (image) lastImage = image;
+  chat.turns.push({ role: "user", text, hasImage: !!image, img: image });
+  const pend = { role: "frog", pending: true };
+  chat.turns.push(pend);
+  if (!$("#dock")) pageFrog(); else renderThread();
+  const go = $("#go"); if (go) go.disabled = true;
+  const pe = $(`[data-t="${chat.turns.length - 1}"]`); if (pe) pe.scrollIntoView({ behavior: "smooth", block: "center" });
+  let turn;
+  try {
+    const r = await api("/api/frog/ask", { body: { text, image, wish: chat.wish, history: hist } });
+    if (r.mode === "chat") turn = { role: "frog", kind: "chat", text: r.reply, hints: r.hints, replyKind: r.kind, llm: r.llm_state };
+    else {
+      chat.wish = r.wish;
+      turn = { role: "frog", kind: "search", ack: r.ack, text: r.wish, data: r, understood: r.understood, image: lastImage };
+      try { sessionStorage.setItem("frog_ctx", JSON.stringify({ text: r.wish, parsed: r.parsed, image: lastImage, understood: r.understood })); } catch {}
+    }
+  } catch (err) { turn = { role: "frog", kind: "chat", text: "Ква-а, что-то пошло не так: " + err.message + ". Попробуйте ещё раз.", hints: [] }; }
+  chatBusy = false;
+  const i = chat.turns.indexOf(pend);
+  if (i < 0) return;
+  chat.turns[i] = turn; saveChat();
+  const go2 = $("#go"); if (go2) go2.disabled = false;
+  if (!$("#thread")) return;                     // гость ушёл на другую страницу: ответ дождётся его в истории
+  renderThread();
+  const el = $(`[data-t="${i}"]`); if (el) el.scrollIntoView({ behavior: "smooth", block: turn.kind === "search" ? "start" : "center" });
+  if (turn.kind === "search") pollFrog(turn);
+  else if (turn.llm === "ready" && text) upgradeChat(i, text, hist);
+  const q = $("#q"); if (q && turn.kind === "chat") q.focus();
+}
 async function pageFrog() {
   main.className = "";
-  const st0 = frogState;
-  let image = st0 ? st0.image : null;
-  main.innerHTML = `<section class="frog-home${st0 ? " done" : ""}" id="fh">
-    ${MASCOT()}
-    <h1>${st0 ? "Вот что я нашла" : "Какое жильё на Байкале вы хотите?"}</h1>
-    <p class="sub">Расскажите своими словами, можно приложить фото-референс. Я подберу три отеля и проверю их по карте.</p>
-    <form class="ask-card" id="af">
+  let image = null;
+  const has = chat.turns.length > 0;
+  const form = `<form class="ask-card" id="af">
       <label for="q" style="position:absolute;left:-999px">Опишите, какой отель вы ищете</label>
-      <textarea id="q" rows="1" maxlength="600" placeholder="Например: тихий номер с видом на закат, рядом с берегом, зимой, с баней">${esc(st0 ? st0.text : "")}</textarea>
+      <textarea id="q" rows="1" maxlength="600" placeholder="${has ? "Добавьте или поправьте: например, ещё с бассейном и баней" : "Например: тихий номер с видом на закат, рядом с берегом, зимой, с баней"}"></textarea>
       <div class="ask-row">
         <button type="button" class="attach" id="pick">${CAM}<span>Фото-референс</span></button><input type="file" id="file" accept="image/*" hidden>
         <span id="thumb"></span><span class="grow"></span>
-        <button type="submit" class="go" id="go">${FROG_MINI}<span>Найти</span></button>
+        <button type="submit" class="go" id="go">${FROG_MINI}<span>${has ? "Отправить" : "Найти"}</span></button>
       </div>
-    </form>
-    ${st0 ? "" : `<div class="hints">${HINTS.map(h => `<button type="button" class="ex">${esc(h)}</button>`).join("")}</div>`}
+    </form>`;
+  main.innerHTML = `<section class="frog-home${has ? " done" : ""}" id="fh">
+    ${MASCOT()}
+    <h1>${has ? "Разговор с лягушкой" : "Какое жильё на Байкале вы хотите?"}</h1>
+    ${has ? '<button class="quiet" id="newchat" type="button">Начать заново</button>' : '<p class="sub">Расскажите своими словами, можно приложить фото-референс. Я подберу три отеля и проверю их по карте.</p>'}
+    ${has ? "" : form}
+    ${has ? "" : `<div class="hints">${HINTS.map(h => `<button type="button" class="ex">${esc(h)}</button>`).join("")}</div>`}
     <span class="region">Только Байкал</span>
-  </section><section id="out" aria-live="polite"></section>`;
+  </section><section id="thread" class="thread" aria-live="polite"></section>${has ? `<div class="dock" id="dock">${form}</div>` : ""}`;
   const showThumb = () => { $("#thumb").innerHTML = image ? `<span class="thumb"><img src="${image}" alt="Ваш референс"><span>фото добавлено</span><button type="button" id="rm" aria-label="Убрать фото">×</button></span>` : ""; const rm = $("#rm"); if (rm) rm.onclick = () => { image = null; showThumb(); }; };
   showThumb();
   $("#pick").onclick = () => $("#file").click();
@@ -196,46 +267,20 @@ async function pageFrog() {
   $("#q").addEventListener("input", grow); grow();
   $$(".ex").forEach(b => b.onclick = () => { $("#q").value = b.textContent; grow(); $("#q").focus(); });
   $("#q").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#af").requestSubmit(); } });
-  $("#af").onsubmit = async e => {
+  const nc = $("#newchat");
+  if (nc) nc.onclick = () => { clearTimeout(frogPoll); chat = { turns: [], wish: "" }; lastImage = null; chatBusy = false; saveChat(); try { sessionStorage.removeItem("frog_ctx"); } catch {} pageFrog(); window.scrollTo(0, 0); };
+  $("#af").onsubmit = e => {
     e.preventDefault();
     const text = $("#q").value.trim();
     if (text.length < 3 && !image) { toast("Опишите, какой отель ищете, или добавьте фото"); return; }
-    clearTimeout(frogPoll);
-    const fh = $("#fh"), go = $("#go"), out = $("#out");
-    fh.classList.add("done"); $("h1", fh).textContent = "Ква! Ищу для вас"; $(".mascot", fh).classList.add("hop"); go.disabled = true; $(".hints") && $(".hints").remove();
-    out.innerHTML = `<div class="thinking"><b>Лягушка работает</b><span>Читает запрос${image ? " и смотрит фото" : ""}, ищет по каталогу Островка, сверяет карту и свежесть данных. Это может занять до минуты.</span></div>`;
-    try {
-      const r = await api("/api/frog/ask", { body: { text, image } });
-      if (r.mode === "chat") {
-        $(".mascot", fh).classList.remove("hop"); $("h1", fh).textContent = "Расскажите, чего вам хочется"; go.disabled = false;
-        out.innerHTML = `<div class="chatbox"><div class="say big"><div class="av" aria-hidden="true">${FROG_MINI}</div><div class="bubble">${esc(r.reply)}</div></div>
-          <div class="hints">${r.hints.map(h => `<button type="button" class="ex2">${esc(h)}</button>`).join("")}</div></div>`;
-        $$(".ex2", out).forEach(b => b.onclick = () => { $("#q").value = b.textContent; image = null; showThumb(); $("#af").requestSubmit(); });
-        $("#q").focus();
-        if (r.llm_state === "ready" && text) {          // шаблон уже показан; живой ответ модели подменит его, если успеет
-          const bub = $(".bubble", out);
-          api("/api/frog/chat", { body: { text, kind: r.kind } }).then(c => { if (c.text && bub && bub.isConnected) bub.textContent = c.text; }).catch(() => {});
-        }
-        return;
-      }
-      const st = { text, image, data: r, understood: r.understood };
-      frogState = st;
-      try { sessionStorage.setItem("frog_ctx", JSON.stringify({ text, parsed: r.parsed, image, understood: r.understood })); } catch {}
-      $(".mascot", fh).classList.remove("hop"); $("h1", fh).textContent = "Вот что я нашла"; go.disabled = false;
-      renderOut(st); pollFrog(st);
-      out.scrollIntoView({ behavior: "smooth", block: "start" });
-    } catch (err) {
-      $(".mascot", fh).classList.remove("hop"); $("h1", fh).textContent = "Что-то пошло не так"; go.disabled = false;
-      out.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
-    }
+    if (chatBusy) { toast("Лягушка ещё отвечает, секунду"); return; }
+    const img = image;
+    $("#q").value = ""; image = null; showThumb(); grow();
+    askFrog(text, img);
   };
-  if (st0) renderOut(st0), pollFrog(st0);
+  renderThread();
+  if (has) { const ls = lastSearch(); if (ls && chat.turns[chat.turns.length - 1] === ls) pollFrog(ls); window.scrollTo(0, document.body.scrollHeight); }
 }
-
-/* ───────── подробный поиск ───────── */
-const EXAMPLES = ["тихий номер с видом на закат над Байкалом зимой", "у берега, с баней, до 7000 ₽", "Листвянка, пешком до Шаман-камня, тепло в номере", "Ольхон, вид на скалу Шаманка, с собакой"];
-let lastSearch = null;
-
 function intentLabel(it) {
   let s = it.title;
   if (it.kind === "number" && it.threshold) s += ` ≤ ${Math.round(it.threshold)} мин`;
@@ -513,7 +558,8 @@ async function drawBuildingsMap(h) {
 
 /* ───────── сравнение ───────── */
 function cmpCtx() {
-  if (frogState) return { text: frogState.text, parsed: frogState.data.parsed, image: frogState.image, understood: frogState.understood };
+  const ls = lastSearch();
+  if (ls) return { text: ls.text, parsed: ls.data.parsed, image: ls.image || lastImage, understood: ls.understood };
   if (lastSearch && lastSearch.res) return { text: lastSearch.q, parsed: lastSearch.res.parsed };
   try { return JSON.parse(sessionStorage.getItem("frog_ctx")); } catch { return null; }
 }

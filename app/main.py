@@ -183,7 +183,7 @@ async def frog_chat(request: Request):
     kind = d.get("kind")
     if kind not in frog.LLM_KINDS or not text:
         return ok({"text": None, "by": "template"})
-    r = await run_in_threadpool(frog.chat_reply, text, kind, "", True)
+    r = await run_in_threadpool(frog.chat_reply, text, kind, "", True, d.get("history") if isinstance(d.get("history"), list) else None)
     return ok({"text": r["text"] if r["by"] == "llm" else None, "by": r["by"]})
 
 
@@ -199,17 +199,19 @@ async def frog_ask(request: Request):
     else:
         if len(text) < 3 and not image:
             return err("Опишите, какой отель вы ищете")
-        und = await run_in_threadpool(frog.understand, text, image)
+        hist = d.get("history") if isinstance(d.get("history"), list) else None
+        und = await run_in_threadpool(frog.understand, text, image, str(d.get("wish") or ""), hist)
         parsed = und["parsed"]
         if und.get("chat"):          # не поиск: болтовня, чужой регион, неподходящее фото, слишком общий запрос
             return ok({"mode": "chat", "reply": und["chat"]["text"], "by": und["chat"]["by"], "kind": und["chat"]["kind"], "hints": frog.HINTS,
                        "llm_state": llm.state(), "understood": {k: und[k] for k in ("image_given", "image_read", "image_off", "image_what")}})
-    res = search.search(text, 200, parsed)
+    wish = (und or {}).get("wish") or text
+    res = search.search(wish, 200, parsed)
     res = await run_in_threadpool(enrich.augment, parsed, res, not passive)
-    out = {"mode": "search", "top": frog.top(res["results"], 3, text), "coverage": res.get("coverage"), "parsed": {k: v for k, v in parsed.items() if k != "text_terms"},
+    out = {"mode": "search", "wish": wish, "ack": (und or {}).get("ack"), "top": frog.top(res["results"], 3, wish), "coverage": res.get("coverage"), "parsed": {k: v for k, v in parsed.items() if k != "text_terms"},
            "llm_state": llm.state()}
     if und:
-        out["understood"] = {k: v for k, v in und.items() if k not in ("parsed", "chat")}
+        out["understood"] = {k: v for k, v in und.items() if k not in ("parsed", "chat", "wish", "ack")}
         out["understood"]["intents"] = [{"title": i["title"], "want": i.get("want", True)} for i in parsed["intents"]]
         out["understood"]["filters"] = parsed.get("filters") or {}
         out["understood"]["parsed_by"] = parsed.get("parsed_by")

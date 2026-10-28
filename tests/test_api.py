@@ -181,3 +181,17 @@ def test_frog_chat_is_instant_without_model(client, monkeypatch):
     for t in ("привет", "реши мне уравнение", "хочу отель"):
         r = _ask(client, t)
         assert r["mode"] == "chat" and r["by"] == "template"
+
+
+def test_frog_followup_merges_wishes(client):
+    r1 = client.post("/api/frog/ask", json={"text": "хочу тихий номер у озера"}).json()
+    assert r1["mode"] == "search" and r1["wish"] and r1["ack"] is None
+    r2 = client.post("/api/frog/ask", json={"text": "ой забыла, ещё с бассейном и баней", "wish": r1["wish"],
+                                            "history": [{"role": "user", "text": "хочу тихий номер у озера"}, {"role": "frog", "text": "Вот три отеля"}]}).json()
+    assert r2["mode"] == "search"
+    titles = {i["title"] for i in r2["parsed"]["intents"]}
+    assert {t["title"] for t in r1["parsed"]["intents"]} <= titles          # старое не потерялось
+    assert "Бассейн" in titles and "Баня или сауна" in titles               # новое добавилось
+    assert r2["ack"] and "бассейн" in r2["ack"].lower()
+    r3 = client.post("/api/frog/ask", json={"text": "давай заново: хочу номер с баней", "wish": r2["wish"]}).json()
+    assert {i["title"] for i in r3["parsed"]["intents"]} == {"Баня или сауна"}   # сброс: прежнее забыто
