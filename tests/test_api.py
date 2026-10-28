@@ -170,3 +170,14 @@ def test_frog_irrelevant_image(client, monkeypatch):
     monkeypatch.setattr(llm, "chat", lambda *a, **k: None)
     r = _ask(client, "", img)                                   # модель не видит картинки
     assert r["mode"] == "chat" and r["kind"] == "image_unread"
+
+
+def test_frog_chat_is_instant_without_model(client, monkeypatch):
+    from app import llm
+    def boom(*a, **k):
+        raise AssertionError("модель не должна вызываться для болтовни")
+    monkeypatch.setattr(llm, "chat", boom)
+    monkeypatch.setattr(llm, "chat_json", boom)
+    for t in ("привет", "реши мне уравнение", "хочу отель"):
+        r = _ask(client, t)
+        assert r["mode"] == "chat" and r["by"] == "template"

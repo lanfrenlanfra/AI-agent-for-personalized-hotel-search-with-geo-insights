@@ -89,14 +89,17 @@ def vague_or_off(text: str) -> tuple[str, str]:
                          "Ква! Это вне моего болота: я лягушка-агент по отелям Байкала. Расскажите, где хотите проснуться: с видом на лёд, рядом с берегом, в тишине?"], text)
 
 
-def chat_reply(text: str, kind: str, base: str) -> dict:
-    """Живой ответ модели в роли лягушки; без модели — шаблон."""
-    if llm.usable() and kind in ("greet", "thanks", "about", "region", "vague", "off"):
+LLM_KINDS = ("greet", "thanks", "about", "region", "vague", "off")
+
+
+def chat_reply(text: str, kind: str, base: str, live: bool = False) -> dict:
+    """Ответ лягушки. По умолчанию мгновенный шаблон; живой ответ модели (live=True) запрашивается отдельно и подменяет шаблон на странице."""
+    if live and llm.usable() and kind in LLM_KINDS:
         out = llm.chat([
             {"role": "system", "content": "Ты — лягушка Ква, весёлый и тёплый агент по отелям Байкала. Ответь гостю на его реплику в 1–3 коротких предложениях по-русски, с лёгким юмором, "
                                           "и мягко подведи к тому, чтобы он описал, какой отдых или отель на Байкале ищет (вид, тишина, баня, берег, бюджет, с кем едет). "
                                           "Если он спрашивает про другое место или тему, шутливо скажи, что умеешь только отели Байкала. Ничего не выдумывай про конкретные отели, без списков и эмодзи, можно начать с «Ква!»."},
-            {"role": "user", "content": text}], temperature=0.8, timeout=40)
+            {"role": "user", "content": text}], temperature=0.8, timeout=30)
         if out:
             return {"text": out.strip(), "by": "llm"}
     return {"text": base, "by": "template"}
@@ -120,7 +123,13 @@ def understand(text: str, image: str | None) -> dict:
         res["chat"] = {"kind": st[0], **chat_reply(text, st[0], st[1])}
         res["parsed"] = {"query": text, "intents": [], "filters": {}, "text_terms": [], "parsed_by": "rules"}
         return res
-    parsed = search.parse_query(full)
+    rules = search.parse_query(full, use_llm=False)          # дёшево: правила
+    if not rules["intents"] and not rules.get("filters") and not (img and img["relevant"]) and not _HOTELISH.search(full):
+        kind, base = vague_or_off(full)                      # про отели тут нет ничего: отвечаем сразу, модель не ждём
+        res["chat"] = {"kind": kind, **chat_reply(text or full, kind, base)}
+        res["parsed"] = rules
+        return res
+    parsed = search.parse_query(full, use_llm=llm.state() == "ready")   # модель разбирает запрос, только если она живая
     if not parsed["intents"] and not parsed.get("filters"):
         if img and img["relevant"]:
             kind, base = "image_vague", "Ква! Фото красивое, но я не уловила, что на нём для вас главное. Добавьте пару слов: тишина, баня, берег, бюджет?"

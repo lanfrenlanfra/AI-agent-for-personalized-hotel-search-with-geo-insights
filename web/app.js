@@ -212,6 +212,10 @@ async function pageFrog() {
           <div class="hints">${r.hints.map(h => `<button type="button" class="ex2">${esc(h)}</button>`).join("")}</div></div>`;
         $$(".ex2", out).forEach(b => b.onclick = () => { $("#q").value = b.textContent; image = null; showThumb(); $("#af").requestSubmit(); });
         $("#q").focus();
+        if (r.llm_state === "ready" && text) {          // шаблон уже показан; живой ответ модели подменит его, если успеет
+          const bub = $(".bubble", out);
+          api("/api/frog/chat", { body: { text, kind: r.kind } }).then(c => { if (c.text && bub && bub.isConnected) bub.textContent = c.text; }).catch(() => {});
+        }
         return;
       }
       const st = { text, image, data: r, understood: r.understood };

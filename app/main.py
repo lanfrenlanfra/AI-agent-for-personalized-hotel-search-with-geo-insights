@@ -176,6 +176,17 @@ async def api_search(request: Request):
     return ok(await run_in_threadpool(enrich.augment, parsed, res, not passive))
 
 
+async def frog_chat(request: Request):
+    """Живая реплика лягушки для не-поисковых сообщений (болтовня, офтоп): страница сначала показывает шаблон, потом подменяет его этим ответом."""
+    d = await body(request)
+    text = (d.get("text") or "").strip()[:300]
+    kind = d.get("kind")
+    if kind not in frog.LLM_KINDS or not text:
+        return ok({"text": None, "by": "template"})
+    r = await run_in_threadpool(frog.chat_reply, text, kind, "", True)
+    return ok({"text": r["text"] if r["by"] == "llm" else None, "by": r["by"]})
+
+
 async def frog_ask(request: Request):
     """Сценарий главной страницы: описание (+ фото) → топ-3. С parsed — только обновить выдачу (опрос прогресса)."""
     d = await body(request)
@@ -507,6 +518,7 @@ routes = [
     Route("/api/search", api_search, methods=["GET", "POST"]),
     Route("/api/frog/ask", frog_ask, methods=["POST"]),
     Route("/api/frog/say", frog_say, methods=["POST"]),
+    Route("/api/frog/chat", frog_chat, methods=["POST"]),
     Route("/api/frog/compare", frog_compare, methods=["POST"]),
     Route("/api/frog/compare/say", frog_compare_say, methods=["POST"]),
     Route("/api/jobs", api_jobs),

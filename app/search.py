@@ -197,9 +197,9 @@ def parse_query_llm(q: str) -> dict | None:
     return {"query": q, "intents": out, "filters": res.get("filters") or {}, "text_terms": [], "parsed_by": "llm"}
 
 
-def parse_query(q: str) -> dict:
+def parse_query(q: str, use_llm: bool = True) -> dict:
     rules = parse_query_rules(q)
-    ll = parse_query_llm(q)
+    ll = parse_query_llm(q) if use_llm else None
     if ll:
         ll["text_terms"] = rules["text_terms"]
         for k, v in rules["filters"].items():
