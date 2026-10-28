@@ -165,6 +165,28 @@ def serp_items(page: dict) -> list[dict]:
     return ((page.get("serpData") or {}).get("hotels")) or []
 
 
+def catalog_row(item: dict) -> dict:
+    """Дешёвая запись об отеле из страницы каталога: хватает для первичного отбора, без захода на страницу отеля."""
+    loc = item.get("location") or {}
+    rate = item.get("datelessRate") or item.get("datefullRate") or {}
+    subs = [x for x in (item.get("nearestSubways") or []) if isinstance(x, dict) and x.get("distance") is not None]
+    beaches = [x for x in (item.get("nearestBeaches") or []) if isinstance(x, dict)]
+    bd = None
+    for b in beaches:
+        d = b.get("distance") if b.get("distance") is not None else b.get("distance_m")
+        if d is not None and (bd is None or d < bd):
+            bd = d
+    return {
+        "master_id": str(item.get("masterId")), "slug": item.get("id"), "name": item.get("name"), "kind": item.get("kind"),
+        "apart": bool(item.get("isApartLike")), "stars": item.get("stars") or 0, "rating": item.get("rating"), "reviews": item.get("numReviews") or 0,
+        "price": rate.get("amount") or rate.get("price"), "lat": loc.get("latitude"), "lon": loc.get("longitude"), "address": loc.get("address"),
+        "center_m": item.get("searchRegionCenterDistance"),
+        "subway_m": min((x["distance"] for x in subs), default=None), "subway_name": min(subs, key=lambda x: x["distance"])["name"] if subs else None,
+        "beach_m": bd, "amenities": list(item.get("amenities") or []),
+        "region": item.get("regionCatalogSlug"),
+    }
+
+
 def serp_summary(item: dict) -> dict:
     loc = item.get("location") or {}
     return {
@@ -178,4 +200,5 @@ def serp_summary(item: dict) -> dict:
         "stars": item.get("stars"),
         "region_slug": item.get("regionCatalogSlug"),
         "serp": {k: item.get(k) for k in ("datelessRate", "datefullRate", "stars", "nearestBeaches", "nearestSubways", "searchRegionCenterDistance")},
+        "catalog": catalog_row(item),
     }

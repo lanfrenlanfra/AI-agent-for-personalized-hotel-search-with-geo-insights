@@ -65,6 +65,14 @@ def listing(region: str, page: int) -> list[dict]:
     return [ostrovok.serp_summary(i) for i in ostrovok.serp_items(ostrovok.parse_next_data(r.text))]
 
 
+def catalog_page(region: str, page: int) -> tuple[list[dict], int | None]:
+    """Одна страница каталога → (дешёвые записи, всего отелей в регионе)."""
+    r = get(f"{OSTROVOK}/hotel/{region}/", params={"page": page} if page > 1 else None)
+    pp = ostrovok.parse_next_data(r.text)
+    total = (pp.get("serpData") or {}).get("totalHotels")
+    return [ostrovok.catalog_row(i) for i in ostrovok.serp_items(pp)], total
+
+
 def hotel_url(region: str, master_id: str, slug: str) -> str:
     return f"{OSTROVOK}/hotel/{region}/mid{master_id}/{slug}/"
 

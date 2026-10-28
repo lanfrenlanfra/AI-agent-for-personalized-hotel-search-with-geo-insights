@@ -171,3 +171,10 @@ th { font-weight: 700; background: var(--soft); border-top: 0; }
   .hbar { grid-template-columns: 110px 1fr 46px; } .ask { flex-direction: column; } .ask button { align-self: stretch; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+.cover { background: var(--paper); border: 1px dashed var(--line); border-radius: var(--r); padding: 10px 14px; font-size: 14px; }
+.pulse { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #0e8f7e; margin-right: 4px; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+.cand-h { margin: 8px 0 0; font-size: 15px; }
+.card.cand { grid-template-columns: 1fr; opacity: .92; border-style: dashed; }

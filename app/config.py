@@ -23,6 +23,10 @@ class Settings:
 
     region_slug: str = _env("REGION_SLUG", "russia/st._petersburg")
     collect_limit: int = int(_env("COLLECT_LIMIT", "60"))
+    collect_catalog_pages: int = int(_env("COLLECT_CATALOG_PAGES", "100"))
+    enrich_on_demand: bool = _env("ENRICH_ON_DEMAND", "true").lower() in ("1", "true", "yes")
+    enrich_batch: int = int(_env("ENRICH_BATCH", "8"))
+    enrich_max_per_hour: int = int(_env("ENRICH_MAX_PER_HOUR", "120"))
     collect_delay: float = float(_env("COLLECT_DELAY", "1.5"))
 
     hotelier_login: str = _env("HOTELIER_LOGIN", "hotelier")

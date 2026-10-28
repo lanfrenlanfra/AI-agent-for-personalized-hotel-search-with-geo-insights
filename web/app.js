@@ -94,14 +94,20 @@ async function pageSearch(q) {
   await runSearch(q, null);
 }
 
-async function runSearch(q, override) {
+let pollTimer = null;
+async function runSearch(q, override, passive) {
   const box = $("#results");
-  box.innerHTML = '<div class="loading">Считаем…</div>';
-  const res = await api("/api/search", { body: { q, ...(override || {}) } });
-  lastSearch = { q, res };
+  clearTimeout(pollTimer);
+  if (!passive) box.innerHTML = '<div class="loading">Считаем…</div>';
+  const res = await api("/api/search", { body: { q, ...(override || {}), ...(passive ? { passive: true } : {}) } });
+  if (!$("#results")) return;
+  lastSearch = { q, res, override };
   renderCrit(res.parsed, q);
-  if (!res.results.length) { box.innerHTML = '<div class="empty">Пока нет отелей. Соберите данные командой docker compose run --rm collect.</div>'; return; }
-  box.innerHTML = res.results.map(cardHtml).join("");
+  const cov = res.coverage || {};
+  // пока фоновая проверка идёт, тихо обновляем выдачу: новые отели появляются сами
+  if (cov.pending > 0 && cov.enabled) pollTimer = setTimeout(() => { if (location.hash.startsWith("#/") && !location.hash.startsWith("#/hotel")) runSearch(q, override, true).catch(() => {}); }, 6000);
+  if (!res.results.length && !(cov.candidates || []).length) { box.innerHTML = '<div class="empty">Пока нет отелей. Соберите данные командой docker compose --profile collect run --rm collect.</div>'; return; }
+  box.innerHTML = coverageHtml(cov, res.results.length) + res.results.map(cardHtml).join("") + candidatesHtml(cov);
   $$(".cmp input", box).forEach(c => { c.checked = state.compare.has(c.value); c.onchange = () => { c.checked ? state.compare.add(c.value) : state.compare.delete(c.value); cmpBar(); }; });
   cmpBar();
   drawMarkers(res.results);
@@ -114,6 +120,24 @@ function renderCrit(parsed, q) {
     + (parsed.parsed_by === "llm" ? '<span class="pill">разобрано LLM</span>' : "");
   $$("button[data-i]", c).forEach(b => b.onclick = () => { const ints = parsed.intents.filter((_, i) => i !== +b.dataset.i); runSearch(q, { intents: ints, filters: parsed.filters }); });
   $$("button[data-f]", c).forEach(b => b.onclick = () => { const f = { ...parsed.filters }; delete f[b.dataset.f]; runSearch(q, { intents: parsed.intents, filters: f }); });
+}
+function coverageHtml(cov, shown) {
+  if (!cov || !cov.total) return "";
+  const rest = cov.enriched < cov.total;
+  const live = cov.pending > 0
+    ? `<span class="pulse" aria-hidden="true"></span> Проверяем ещё ${cov.pending} — результаты обновятся сами.`
+    : !rest ? "" : cov.enabled ? "Подходящие под новый запрос проверяются автоматически." : "Фоновая проверка выключена.";
+  return `<div class="cover" role="status"><b>Проверено глубоко: ${cov.enriched} из ${cov.total}</b> отелей региона.${rest ? " Остальные пока известны только по каталогу: цена, метро, оценка." : ""} ${live}</div>`;
+}
+function candidatesHtml(cov) {
+  const cs = (cov && cov.candidates) || [];
+  if (!cs.length) return "";
+  const st = { candidate: "в очереди на проверку", queued: "в очереди на проверку", running: "проверяем сейчас…", failed: "не удалось проверить" };
+  return `<h3 class="cand-h">Ещё подходят по каталогу, проверяем</h3>` + cs.map(c => `<article class="card cand">
+    <div class="bd"><h3>${esc(c.name)}</h3>
+    <div class="meta"><span>${stars(c.stars)}</span>${c.rating ? `<span>оценка ${c.rating} (${c.reviews} отз.)</span>` : ""}${c.price ? `<span>от ${money(c.price)}</span>` : ""}${c.subway ? `<span>метро ${esc(c.subway)}</span>` : ""}<span>${esc(c.address || "")}</span></div>
+    <ul class="why">${(c.notes || []).map(n => `<li><span class="vd vd-maybe">≈</span><span>${esc(n)} <span class="age">данные каталога, не проверено</span></span></li>`).join("")}</ul>
+    <div class="muted"><span class="pill">${st[c.status] || st.candidate}</span>${c.status === "failed" && c.error ? ` ${esc(c.error)}` : ""}</div></div></article>`).join("");
 }
 function cardHtml(r) {
   const lb = r.label === "Не подходит" ? "lb-Не" : r.label.startsWith("Подходит") ? "lb-Подходит" : "";

@@ -91,3 +91,12 @@ def test_metrics_and_freshness(client):
     assert "stale" in client.get("/api/freshness").json()
     client.post("/api/eval/labels", json={"hotel_id": "test_tishina", "feature": "elevator", "value": False})
     assert client.get("/api/metrics").json()["evaluation"]["labeled"] == 1
+
+
+def test_search_reports_coverage_and_jobs(client):
+    j = client.post("/api/search", json={"q": "тихий номер"}).json()
+    assert j["coverage"]["total"] == 0 and j["coverage"]["candidates"] == []     # каталога региона нет — только собранное
+    p = client.post("/api/search", json={"q": "тихий номер", "passive": True}).json()
+    assert p["results"]
+    jobs = client.get("/api/jobs").json()
+    assert jobs["jobs"] == [] and jobs["total"] == 0

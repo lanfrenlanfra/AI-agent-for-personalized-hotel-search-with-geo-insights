@@ -97,6 +97,19 @@ CREATE TABLE IF NOT EXISTS events (
   kind TEXT NOT NULL,
   payload TEXT
 );
+CREATE TABLE IF NOT EXISTS catalog (
+  master_id TEXT PRIMARY KEY,
+  slug TEXT, region TEXT, name TEXT, kind TEXT, apart INTEGER,
+  stars INTEGER, rating REAL, reviews INTEGER, price REAL,
+  lat REAL, lon REAL, address TEXT,
+  center_m REAL, subway_m REAL, subway_name TEXT, beach_m REAL,
+  amenities TEXT, fetched_at TEXT,
+  hotel_id TEXT,
+  enrich_status TEXT NOT NULL DEFAULT '',
+  enrich_error TEXT,
+  enrich_updated TEXT
+);
+CREATE INDEX IF NOT EXISTS catalog_status ON catalog(enrich_status);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 

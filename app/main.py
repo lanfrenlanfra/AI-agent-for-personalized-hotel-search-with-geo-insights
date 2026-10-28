@@ -12,11 +12,12 @@ from contextlib import asynccontextmanager
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import db, freshness, hotelier, horizon, ingest, llm, metrics, ostrovok, pipeline, reconcile, registry, search
+from . import catalog, db, enrich, freshness, hotelier, horizon, ingest, llm, metrics, ostrovok, pipeline, reconcile, registry, search
 from .collectors.base import SCOPE_TITLES, SOURCES
 from .config import BASE_DIR, settings
 
@@ -162,12 +163,23 @@ async def hotel_map(request: Request):
 async def api_search(request: Request):
     limit = int(request.query_params.get("limit", 30))
     if request.method == "GET":
-        return ok(search.search(request.query_params.get("q", "").strip(), limit))
-    d = await body(request)
-    parsed = None
-    if isinstance(d.get("intents"), list):       # пользователь убрал или поправил критерии разобранного запроса
-        parsed = {"query": d.get("q", ""), "intents": d["intents"], "filters": d.get("filters") or {}, "text_terms": [], "parsed_by": "edited"}
-    return ok(search.search((d.get("q") or "").strip(), limit, parsed))
+        q, parsed = request.query_params.get("q", "").strip(), None
+        passive = request.query_params.get("passive") == "1"
+    else:
+        d = await body(request)
+        q, parsed, passive = (d.get("q") or "").strip(), None, bool(d.get("passive"))
+        if isinstance(d.get("intents"), list):       # пользователь убрал или поправил критерии разобранного запроса
+            parsed = {"query": q, "intents": d["intents"], "filters": d.get("filters") or {}, "text_terms": [], "parsed_by": "edited"}
+    parsed = parsed or search.parse_query(q)
+    res = search.search(q, limit, parsed)
+    # passive: опрос прогресса из интерфейса — не ставим новые задачи, только обновляем выдачу и статусы
+    return ok(await run_in_threadpool(enrich.augment, parsed, res, not passive))
+
+
+async def api_jobs(request: Request):
+    return ok({**catalog.stats(), "enabled": enrich.enabled(),
+               "jobs": [dict(r) for r in db.rows("SELECT master_id, name, enrich_status AS status, enrich_error AS error, enrich_updated AS updated FROM catalog "
+                                                  "WHERE enrich_status IN ('queued','running','failed') ORDER BY enrich_updated DESC LIMIT 50")]})
 
 
 async def api_parse(request: Request):
@@ -393,7 +405,10 @@ def startup():
     pick_data_dir()
     r = pipeline.bootstrap()
     log.info("готово: %s, демо-синтетика: %s", r, getattr(settings, "demo_mode", False))
+    catalog.load()
     freshness.start_background()
+    if enrich.enabled():
+        enrich.start_worker()
 
 
 def pick_data_dir() -> None:
@@ -420,6 +435,7 @@ routes = [
     Route("/api/hotels/{hid}/refresh", hotel_refresh, methods=["POST"]),
     Route("/api/hotels/{hid}/demo/building", demo_building, methods=["POST", "DELETE"]),
     Route("/api/search", api_search, methods=["GET", "POST"]),
+    Route("/api/jobs", api_jobs),
     Route("/api/parse", api_parse),
     Route("/api/compare", api_compare),
     Route("/api/features", features_list, methods=["GET"]),
