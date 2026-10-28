@@ -26,7 +26,7 @@ def chat(messages: list[dict], temperature: float = 0.2, timeout: int = 45) -> s
     try:
         r = requests.post(
             f"{settings.llm_base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.llm_api_key}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {settings.llm_api_key}", "Content-Type": "application/json", **({"OpenAI-Project": settings.llm_project} if settings.llm_project else {})},
             json={"model": settings.llm_model, "messages": messages, "temperature": temperature},
             timeout=timeout,
         )

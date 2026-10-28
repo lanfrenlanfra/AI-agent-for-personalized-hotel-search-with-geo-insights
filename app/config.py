@@ -20,6 +20,7 @@ class Settings:
     llm_base_url: str = _env("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     llm_api_key: str = _env("LLM_API_KEY", "")
     llm_model: str = _env("LLM_MODEL", "gpt-4o-mini")
+    llm_project: str = _env("LLM_PROJECT", "")       # заголовок OpenAI-Project (нужен Yandex AI Studio: идентификатор каталога)
 
     region_slug: str = _env("REGION_SLUG", "russia/baykal")
     collect_limit: int = int(_env("COLLECT_LIMIT", "60"))
