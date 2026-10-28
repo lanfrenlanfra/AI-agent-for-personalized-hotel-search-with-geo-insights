@@ -244,6 +244,10 @@ def _match(spec: dict, it: dict, f: dict) -> float:
                 if hit and it.get("floor") and hit["min_floor"] > it["floor"]:
                     return 0.35
         if it["feature"] == "sunset_view" and ok:
+            if not it.get("months"):
+                ms0 = det.get("months") or ((det.get("best_side") or {}).get("months")) or []
+                if ms0 and len(ms0) < 6:
+                    return 0.4 + 0.6 * len(ms0) / 6        # закат виден лишь часть года — частичное совпадение
             if it.get("months"):
                 ms = det.get("months") or ((det.get("best_side") or {}).get("months"))
                 if ms is not None and not set(ms) & set(it["months"]):
@@ -301,7 +305,8 @@ def evaluate_intent(spec: dict, it: dict, hotel_facts: dict[str, list[dict]]) ->
         verdict = "partial"
     else:
         verdict = "no" if cert >= 0.4 else "unknown"
-    if f.get("conflict") and verdict == "ok":
+    hf = next((x for x in hotel_facts.get(it["feature"], []) if x["scope"] == "hotel"), None)
+    if verdict == "ok" and ((f.get("conflict")) or (hf and hf is not f and hf.get("conflict"))):
         verdict = "maybe"            # источники расходятся, пусть и слабо — не обещаем
     if f["status"] == "stale":
         verdict = "stale" if verdict in ("ok", "maybe") else verdict
@@ -357,10 +362,13 @@ def score_hotel(hotel: dict, intents: list[dict], filters: dict, terms: list[str
 def explain(items: list[dict]) -> str:
     parts = []
     ok = [i for i in items if i["verdict"] == "ok" and i["feature"] != "text"]
-    no = [i for i in items if i["verdict"] in ("no", "partial")]
+    no = [i for i in items if i["verdict"] == "no"]
+    part = [i for i in items if i["verdict"] == "partial"]
     unk = [i for i in items if i["verdict"] in ("unknown", "maybe", "disputed", "stale")]
     if ok:
         parts.append("Подходит: " + "; ".join(f'{i["title"].lower()} — {i["text"].rstrip(".").lower() if i["text"] else "да"}' for i in ok[:3]))
+    if part:
+        parts.append("Частично: " + "; ".join(f'{i["title"].lower()} — {i["text"].rstrip(".").lower()}' for i in part[:3]))
     if no:
         parts.append("Не подходит: " + "; ".join(f'{i["title"].lower()} — {i["text"].rstrip(".").lower()}' for i in no[:3]))
     if unk:
