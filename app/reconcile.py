@@ -211,12 +211,15 @@ def resolve(spec: dict, obs_rows: list[dict], ref: date | None = None) -> dict |
     stale = all(s == "stale" for s in states)
     has_authority = any(i["source"] in AUTHORITY and not i["simulated"] for i in support)
     sim_only = any(i["simulated"] for i in support) and not has_authority
+    model_only = all(i["source"] == "osm_geo" for i in support)
     if disputed:
         status = "disputed"
     elif stale:
         status = "stale"
     elif has_authority and conf >= 0.5:
         status = "confirmed"
+    elif model_only and conf >= 0.3:
+        status = "likely"            # расчёт по карте без независимого подтверждения — не «подтверждено»
     elif sim_only and conf >= 0.3:
         status = "likely"            # имитация отельера — не данные отеля
     elif conf >= 0.6 and (len({i["source"] for i in support}) >= 2 or conf >= 0.7):

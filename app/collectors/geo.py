@@ -6,15 +6,17 @@
 """
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
 import yaml
 
 from .. import osmtiles
+from ..config import settings
 from ..geo import noise, sun, surroundings, view, walk
 from ..geo.proj import Frame, haversine
-from ..geo.scene import Scene, scene_from_tiles
+from ..geo.scene import Building, Scene, scene_from_tiles
 from .base import SIDE_KEYS, Obs, today
 
 SCENE_RADIUS = 1400.0
@@ -26,12 +28,36 @@ def load_landmarks() -> list[dict]:
     return yaml.safe_load(LANDMARKS_FILE.read_text(encoding="utf-8")).get("landmarks", [])
 
 
-def build_scene(lat: float, lon: float) -> tuple[Scene | None, str | None, int]:
+def overlay_file(hotel_id: str) -> Path:
+    return settings.runtime_dir / "overlay" / f"{hotel_id}.json"
+
+
+def load_overlay(hotel_id: str | None) -> list[dict]:
+    """Дополнительные здания «из будущего» (демо актуализации): {bearing, dist, w, d, height}."""
+    if not hotel_id:
+        return []
+    f = overlay_file(hotel_id)
+    try:
+        return json.loads(f.read_text(encoding="utf-8")) if f.exists() else []
+    except (OSError, ValueError):
+        return []
+
+
+def build_scene(lat: float, lon: float, hotel_id: str | None = None) -> tuple[Scene | None, str | None, int]:
     tiles, missing = osmtiles.load_tiles(lat, lon, SCENE_RADIUS)
     if not tiles:
         return None, None, len(missing)
     frame = Frame(lat, lon)
     sc = scene_from_tiles(tiles, frame, radius=SCENE_RADIUS)
+    extra = load_overlay(hotel_id)
+    for i, o in enumerate(extra):
+        b = math.radians(o["bearing"])
+        cx, cy = o["dist"] * math.sin(b), o["dist"] * math.cos(b)
+        w, d = o.get("w", 40.0) / 2, o.get("d", 25.0) / 2
+        ring = [(cx - w, cy - d), (cx + w, cy - d), (cx + w, cy + d), (cx - w, cy + d)]
+        sc.buildings.append(Building(f"overlay{i}", ring, float(o["height"]), True, levels=None))
+    if extra:
+        sc.build_index()
     date_ = max((t.get("fetched_at", "")[:10] for t in tiles), default=today()) or today()
     return sc, date_, len(missing)
 
@@ -49,7 +75,7 @@ def collect(rec: dict, scene: Scene | None = None, osm_day: str | None = None) -
     obs.append(Obs("white_nights", {"v": bool(wn), "summary": (f"Белые ночи с {wn['start']} по {wn['end']} (солнце не глубже 9° под горизонтом)" if wn else "Белых ночей здесь нет"),
                                      "detail": wn or {}}, "astronomy", 0.9, today(), "Положение солнца в полночь по широте"))
     if scene is None:
-        scene, osm_day, _ = build_scene(lat, lon)
+        scene, osm_day, _ = build_scene(lat, lon, rec.get("id"))
     if scene is None:
         return obs
     day = osm_day or today()

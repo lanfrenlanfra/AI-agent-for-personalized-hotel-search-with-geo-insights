@@ -24,7 +24,7 @@ def _normalize(spec: dict[str, Any]) -> dict[str, Any]:
     s.setdefault("kind", "bool")
     s.setdefault("ttl_days", 365)
     s.setdefault("importance", 0.3)
-    s.setdefault("synonyms", [])
+    s["synonyms"] = [str(x) for x in (s.get("synonyms") or [])]
     s.setdefault("description", "")
     s.setdefault("computed", False)
     s.setdefault("good", "high")

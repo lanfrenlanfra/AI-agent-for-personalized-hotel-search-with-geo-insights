@@ -30,6 +30,7 @@ class Settings:
 
     refresh_enabled: bool = _env("REFRESH_ENABLED", "false").lower() in ("1", "true", "yes")
     refresh_interval_min: int = int(_env("REFRESH_INTERVAL_MIN", "60"))
+    refresh_online: bool = _env("REFRESH_ONLINE", "false").lower() in ("1", "true", "yes")
 
     @property
     def db_path(self) -> Path:
