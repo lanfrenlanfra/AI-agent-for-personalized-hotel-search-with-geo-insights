@@ -104,29 +104,40 @@ def chat(messages: list[dict], temperature: float = 0.2, timeout: int = 90) -> s
 
 
 _state: tuple[float, str] = (0.0, "off")
+_probing = False
 
 
-def state() -> str:
-    """off — ключа нет; loading — сервис модели ещё не отвечает или модель скачивается; ready — можно спрашивать."""
-    global _state
-    if not available():
-        return "off"
-    now = time.time()
-    if now - _state[0] < 15:
-        return _state[1]
-    st = "loading"
+def _probe() -> str:
     try:
         r = requests.get(f"{settings.llm_base_url}/models", headers={"Authorization": f"Bearer {settings.llm_api_key}"}, timeout=2)
         if r.status_code == 200:
             ids = [m.get("id", "") for m in (r.json().get("data") or [])]
             m = settings.llm_model
-            st = "ready" if (not ids or m in ids or f"{m}:latest" in ids) else "loading"
-        else:
-            st = "ready"        # у части провайдеров списка моделей нет — считаем, что работает
+            return "ready" if (not ids or m in ids or f"{m}:latest" in ids) else "loading"
+        return "ready"          # у части провайдеров списка моделей нет — считаем, что работает
     except Exception:  # noqa: BLE001
-        st = "loading"
-    _state = (now, st)
-    return st
+        return "loading"
+
+
+def _refresh() -> None:
+    global _state, _probing
+    try:
+        _state = (time.time(), _probe())
+    finally:
+        _probing = False
+
+
+def state() -> str:
+    """off — ключа нет; loading — сервис модели ещё не отвечает или модель скачивается; ready — можно спрашивать.
+    Никогда не блокирует: проверка идёт в фоне, а ответ берётся из последней проверки (раз в 15 секунд)."""
+    global _probing
+    if not available():
+        return "off"
+    ts, cur = _state
+    if time.time() - ts >= 15 and not _probing:
+        _probing = True
+        threading.Thread(target=_refresh, daemon=True).start()
+    return cur if ts else "loading"
 
 
 def chat_json(system: str, user: str, temperature: float = 0.0, timeout: int = 90) -> object | None:

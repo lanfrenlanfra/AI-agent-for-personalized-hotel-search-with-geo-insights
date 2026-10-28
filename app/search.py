@@ -199,7 +199,7 @@ def parse_query_llm(q: str) -> dict | None:
 
 def parse_query(q: str, use_llm: bool = True) -> dict:
     rules = parse_query_rules(q)
-    ll = parse_query_llm(q) if use_llm else None
+    ll = parse_query_llm(q) if use_llm and llm.state() != "loading" else None   # модель ещё грузится: не ждём её, разбираем правилами
     if ll:
         ll["text_terms"] = rules["text_terms"]
         for k, v in rules["filters"].items():

@@ -170,7 +170,7 @@ async def api_search(request: Request):
         q, parsed, passive = (d.get("q") or "").strip(), None, bool(d.get("passive"))
         if isinstance(d.get("intents"), list):       # пользователь убрал или поправил критерии разобранного запроса
             parsed = {"query": q, "intents": d["intents"], "filters": d.get("filters") or {}, "text_terms": [], "parsed_by": "edited"}
-    parsed = parsed or search.parse_query(q)
+    parsed = parsed or await run_in_threadpool(search.parse_query, q)
     res = search.search(q, limit, parsed)
     # passive: опрос прогресса из интерфейса — не ставим новые задачи, только обновляем выдачу и статусы
     return ok(await run_in_threadpool(enrich.augment, parsed, res, not passive))
@@ -274,7 +274,7 @@ async def api_jobs(request: Request):
 
 
 async def api_parse(request: Request):
-    return ok(search.parse_query(request.query_params.get("q", "")))
+    return ok(await run_in_threadpool(search.parse_query, request.query_params.get("q", "")))
 
 
 async def api_compare(request: Request):
@@ -326,13 +326,13 @@ async def features_suggest(request: Request):
     text = (d.get("description") or "").strip()
     if len(text) < 6:
         return err("опишите характеристику хотя бы парой слов")
-    return ok(draft_spec(text))
+    return ok(await run_in_threadpool(draft_spec, text))
 
 
 async def features_add(request: Request):
     d = await body(request)
     if not d.get("title") and d.get("description"):
-        d = {**draft_spec(d["description"]), **d}
+        d = {**(await run_in_threadpool(draft_spec, d["description"])), **d}
     if not d.get("title"):
         return err("нужно название или описание")
     d.setdefault("key", slugify(d["title"]))
@@ -379,7 +379,7 @@ async def question_answer(request: Request):
     if simulated and not d.get("simulated"):
         return err("нужен вход отельера", 401)
     try:
-        return ok(hotelier.answer_question(qid, text, simulated=bool(simulated)))
+        return ok(await run_in_threadpool(hotelier.answer_question, qid, text, simulated=bool(simulated)))
     except KeyError:
         return err("вопрос не найден", 404)
 
@@ -389,8 +389,8 @@ async def question_simulate(request: Request):
     q = db.row("SELECT * FROM questions WHERE id=?", (qid,))
     if not q:
         return err("вопрос не найден", 404)
-    text = hotelier.simulate_answer(q["hotel_id"], q["feature"])
-    res = hotelier.answer_question(qid, text, simulated=True)
+    text = await run_in_threadpool(hotelier.simulate_answer, q["hotel_id"], q["feature"])
+    res = await run_in_threadpool(hotelier.answer_question, qid, text, simulated=True)
     res["answer_text"] = text
     return ok(res)
 
@@ -553,6 +553,7 @@ BOOT = True
 async def lifespan(_app):
     if BOOT:
         startup()
+    llm.state()                     # разогрев: первая проверка модели идёт в фоне
     yield
 
 
