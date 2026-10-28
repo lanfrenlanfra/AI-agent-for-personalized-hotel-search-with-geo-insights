@@ -27,7 +27,7 @@ services:
   # пока она качается, разбор идёт по правилам и записанным ответам, потом подключается LLM.
   # Свой API (Yandex, OpenAI, Ollama на вашем компьютере) — уберите профиль и впишите LLM_* в .env.
   ollama:
-    image: ollama/ollama:0.12.6
+    image: ollama/ollama:0.40.10
     profiles: ["llm"]
     environment:
       OLLAMA_KEEP_ALIVE: "24h"          # держать модель в памяти между запросами
@@ -42,7 +42,7 @@ services:
     restart: unless-stopped
 
   ollama-pull:
-    image: ollama/ollama:0.12.6
+    image: ollama/ollama:0.40.10
     profiles: ["llm"]
     depends_on:
       ollama:
@@ -50,7 +50,7 @@ services:
     environment:
       OLLAMA_HOST: "http://ollama:11434"
       PULL_MODEL: "${LLM_MODEL:-gemma3:4b}"
-    entrypoint: ["sh", "-c", "ollama pull \"$$PULL_MODEL\" && ollama run \"$$PULL_MODEL\" ok >/dev/null 2>&1; echo \"модель $$PULL_MODEL готова\""]
+    entrypoint: ["sh", "-c", "if ollama pull \"$$PULL_MODEL\" && ollama run \"$$PULL_MODEL\" ok >/dev/null 2>&1; then echo \"модель $$PULL_MODEL готова\"; else echo \"ОШИБКА: модель $$PULL_MODEL не скачалась, см. сообщение выше\"; exit 1; fi"]
     restart: "no"
 
   # Сбор настоящих данных (нужен интернет): docker compose --profile collect run --rm collect
