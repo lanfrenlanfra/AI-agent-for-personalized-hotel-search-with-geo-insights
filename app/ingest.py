@@ -33,7 +33,7 @@ def upsert_hotel(rec: dict) -> str:
         "detailed_ratings": rec.get("detailed_ratings"), "description": rec.get("description"),
         "room_groups": rec.get("room_groups"), "nearest_subways": rec.get("nearest_subways"),
         "nearest_beaches": rec.get("nearest_beaches"), "pois": rec.get("pois"), "neighborhood": rec.get("neighborhood"),
-        "region_center": rec.get("region_center"), "kind": rec.get("kind"),
+        "region_center": rec.get("region_center"), "kind": rec.get("kind"), "synthetic": bool(rec.get("synthetic")),
     }
     with db.tx() as c:
         c.execute(

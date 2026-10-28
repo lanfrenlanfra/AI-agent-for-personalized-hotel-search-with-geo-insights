@@ -71,3 +71,18 @@ def bootstrap(force: bool = False) -> dict:
         process_hotel(hid)
     db.execute("INSERT INTO meta(key, value) VALUES('seeded_at', datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
     return {"hotels": len(ids), "loaded": True}
+
+
+def apply_feature(key: str) -> dict:
+    """Новая характеристика: прогнать отзывы всех отелей, свести факты, поставить вопросы отельерам."""
+    registry.invalidate()
+    found = 0
+    for r in db.rows("SELECT id FROM hotels"):
+        rec = hotel_record(r["id"])
+        obs = review_collector.collect(rec["reviews"], only=[key])
+        if obs:
+            save_observations(r["id"], obs)
+            found += 1
+        reconcile.reconcile_hotel(r["id"], only={key})
+        hotelier.generate_questions(r["id"])
+    return {"feature": key, "hotels_with_evidence": found, "hotels": db.row("SELECT COUNT(*) AS n FROM hotels")["n"]}
