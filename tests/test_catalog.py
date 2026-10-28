@@ -68,7 +68,7 @@ def lab(world, tmp_path):
 def test_on_demand_enrichment(lab, monkeypatch):
     tmpl = lab
     rows = [row(9001, tmpl["lat"], tmpl["lon"], 4000, subway=250), row(9002, tmpl["lat"], tmpl["lon"], 4100, subway=2500)]
-    catalog.save_file(rows, "russia/st._petersburg", total=2)
+    catalog.save_file(rows, settings.region_slug, total=2)
     assert catalog.load() == 2 and catalog.stats()["total"] == 2 and enrich.enabled()
 
     calls = []
@@ -111,7 +111,7 @@ def test_on_demand_enrichment(lab, monkeypatch):
 
 def test_hourly_cap(lab, monkeypatch):
     tmpl = lab
-    catalog.save_file([row(i, tmpl["lat"], tmpl["lon"], 4000) for i in (1, 2, 3)], "russia/st._petersburg", 3)
+    catalog.save_file([row(i, tmpl["lat"], tmpl["lon"], 4000) for i in (1, 2, 3)], settings.region_slug, 3)
     catalog.load()
     monkeypatch.setattr(enrich, "start_worker", lambda: None)
     monkeypatch.setattr(enrich, "run_one", lambda mid: db.execute("UPDATE catalog SET enrich_status='done' WHERE master_id=?", (mid,)) and True)

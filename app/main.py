@@ -412,16 +412,8 @@ def startup():
 
 
 def pick_data_dir() -> None:
-    """Нет собранных данных → синтетический демо-набор (честно помечается в интерфейсе)."""
+    """Данные Байкала лежат в репозитории (data/raw). Синтетика остаётся только в тестах."""
     settings.demo_mode = False
-    if ingest.list_raw():
-        return
-    demo = BASE_DIR / "data" / "demo"
-    if not (demo / "raw" / "ostrovok").exists():
-        from . import synthetic
-        synthetic.build(demo)
-    settings.data_dir = demo
-    settings.demo_mode = True
 
 
 routes = [

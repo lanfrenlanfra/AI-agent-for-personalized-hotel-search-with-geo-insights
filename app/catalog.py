@@ -76,7 +76,7 @@ def load(region: str | None = None) -> int:
                 "slug=excluded.slug, name=excluded.name, kind=excluded.kind, apart=excluded.apart, stars=excluded.stars, rating=excluded.rating, reviews=excluded.reviews, "
                 "price=excluded.price, lat=excluded.lat, lon=excluded.lon, address=excluded.address, center_m=excluded.center_m, subway_m=excluded.subway_m, "
                 "subway_name=excluded.subway_name, beach_m=excluded.beach_m, amenities=excluded.amenities, fetched_at=excluded.fetched_at",
-                (r["master_id"], r["slug"], data.get("region"), r["name"], r.get("kind"), int(bool(r.get("apart"))), r.get("stars"), r.get("rating"), r.get("reviews"),
+                (r["master_id"], r["slug"], r.get("region") or data.get("region"), r["name"], r.get("kind"), int(bool(r.get("apart"))), r.get("stars"), r.get("rating"), r.get("reviews"),
                  r.get("price"), r["lat"], r["lon"], r.get("address"), r.get("center_m"), r.get("subway_m"), r.get("subway_name"), r.get("beach_m"),
                  db.dumps(r.get("amenities") or []), data.get("fetched_at")))
             n += 1
@@ -88,7 +88,7 @@ def load(region: str | None = None) -> int:
 
 def summary(r) -> dict:
     """Запись каталога → то, что нужно net.fetch_hotel (цена и звёзды из каталога попадают в карточку)."""
-    return {"master_id": str(r["master_id"]), "slug": r["slug"], "name": r["name"],
+    return {"master_id": str(r["master_id"]), "slug": r["slug"], "name": r["name"], "region": r["region"],
             "serp": {"datelessRate": {"amount": r["price"]}, "stars": r["stars"], "searchRegionCenterDistance": r.get("center_m") if isinstance(r, dict) else r["center_m"]}}
 
 

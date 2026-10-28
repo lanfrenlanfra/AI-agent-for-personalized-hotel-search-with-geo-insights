@@ -168,7 +168,7 @@ def landmark_analysis(scene: Scene, landmarks: list[dict], floors_known: int | N
     for lm in landmarks:
         tx, ty = scene.frame.xy(lm["lat"], lm["lon"])
         D0 = math.hypot(tx, ty)
-        if D0 > max_dist:
+        if D0 > min(max_dist, lm.get("max_m", max_dist)):
             continue
         best = None
         for f in facades:
@@ -210,9 +210,14 @@ def water_view_analysis(scene: Scene, floors_known: int | None = None, reach: fl
     n_floors = floors_known or (own.levels if own and own.levels else None)
     samples: list[tuple[float, float, str]] = []
     for w in scene.water:
-        for x, y in _densify(w["pts"]):
-            if math.hypot(x, y) <= reach:
+        big = w["k"] in ("lake", "coastline")      # озеро и залив видны издалека, реку и канал — только вблизи
+        lim = max(reach, 3500.0) if big else reach
+        for x, y in _densify(w["pts"], 100.0 if big else 30.0):
+            if math.hypot(x, y) <= lim:
                 samples.append((x, y, w["k"]))
+    if len(samples) > 300:
+        samples.sort(key=lambda p: math.hypot(p[0], p[1]))
+        samples = samples[:300]
     best = None
     for f in facades:
         for sx, sy, kind in samples:
@@ -222,10 +227,10 @@ def water_view_analysis(scene: Scene, floors_known: int | None = None, reach: fl
             if fl is not None and (best is None or fl < best["min_floor"] or (fl == best["min_floor"] and D < best["distance_m"])):
                 best = {"min_floor": fl, "side": compass_ru(f["az"]), "az": round(f["az"]), "distance_m": round(D), "kind": kind}
     ok = bool(best) and (n_floors is None or best["min_floor"] <= n_floors)
-    kinds = {"river": "реку", "canal": "канал", "water": "воду", "coastline": "залив"}
+    kinds = {"river": "реку", "canal": "канал", "water": "воду", "lake": "озеро", "coastline": "залив"}
     if ok:
         fl_txt = "с первого этажа" if best["min_floor"] == 1 else f'с {best["min_floor"]}-го этажа'
         summary = f'Видна вода ({kinds.get(best["kind"], "вода")}, {best["distance_m"]} м) из окон на {best["side"]} {fl_txt}'
     else:
-        summary = "Водоём из окон не просматривается" if samples else "Рядом (350 м) нет рек, каналов и залива"
+        summary = "Водоём из окон не просматривается" if samples else "Рядом нет рек, каналов, озера и залива"
     return {"v": ok, "summary": summary, "detail": {"best": best, "water_points": len(samples), "own_building_found": real}}

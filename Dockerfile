@@ -21,6 +21,6 @@ COPY --chown=app:app data ./data
 RUN mkdir -p /app/runtime && chown -R app:app /app
 USER app
 EXPOSE 8080
-HEALTHCHECK --interval=10s --timeout=3s --start-period=40s --retries=5 \
+HEALTHCHECK --interval=10s --timeout=3s --start-period=150s --retries=10 \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).status == 200 else 1)"
 CMD ["python", "-m", "app.main"]

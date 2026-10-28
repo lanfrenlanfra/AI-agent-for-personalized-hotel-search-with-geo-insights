@@ -30,9 +30,10 @@ function ageText(d) {
   return `проверено ${(d / 365).toFixed(1).replace(".", ",")} г. назад`;
 }
 function daysSince(iso) { if (!iso) return null; return Math.max(0, Math.round((Date.now() - new Date(iso.slice(0, 10)).getTime()) / 864e5)); }
+function rate(v) { return v == null ? "" : Number(v).toFixed(1).replace(".", ","); }
 function money(v) { return v ? Math.round(v).toLocaleString("ru-RU") + " ₽" : ""; }
 function stars(n) { return n ? "★".repeat(n) : ""; }
-function photoBox(h) { return h.photo ? `style="background-image:url('${esc(h.photo)}')"` : ""; }
+function photoBox(h) { return h.photo ? `style="background-image:url('${esc(h.photo)}'),linear-gradient(135deg,#bcd4de,#e9d8bd)"` : ""; }
 function initials(n) { return esc((n || "").replace(/[^A-Za-zА-Яа-я ]/g, "").split(" ").filter(Boolean).slice(-2).map(w => w[0]).join("")); }
 
 /* ───────── маршрутизатор ───────── */
@@ -49,13 +50,14 @@ async function route() {
   closeDrawer();
   const nav = h.startsWith("#/hotelier") ? "hotelier" : h.startsWith("#/quality") ? "quality" : h.startsWith("#/features") ? "features" : "search";
   $$("[data-nav]").forEach(a => a.classList.toggle("on", a.dataset.nav === nav));
+  main.className = "";
   for (const [rx, fn] of routes) { const m = h.match(rx); if (m) { main.innerHTML = '<div class="loading">Загружаем…</div>'; try { await fn(m); } catch (e) { main.innerHTML = `<div class="empty">Не получилось загрузить: ${esc(e.message)}</div>`; } window.scrollTo(0, 0); return; } }
   main.innerHTML = '<div class="empty">Такой страницы нет. <a href="#/">К поиску</a></div>';
 }
 window.addEventListener("hashchange", route);
 
 /* ───────── поиск ───────── */
-const EXAMPLES = ["тихий номер с видом на закат недалеко от моря", "окна во двор, метро в 5 минутах, до 8000 ₽", "вид на Исаакиевский собор и белые ночи в июне", "с собакой, быстрый вайфай, без стройки рядом"];
+const EXAMPLES = ["тихий номер с видом на закат над Байкалом зимой", "у берега, с баней, до 7000 ₽", "Листвянка, пешком до Шаман-камня, тепло в номере", "Ольхон, вид на скалу Шаманка, с собакой"];
 let lastSearch = null;
 
 function intentLabel(it) {
@@ -75,18 +77,20 @@ function filterChips(f) {
 }
 
 async function pageSearch(q) {
+  main.className = "bleed";
   main.innerHTML = `
-  <section class="hero">
-    <h1>Отель, который подходит именно вам</h1>
-    <p class="muted" style="max-width:60ch">Опишите поездку своими словами. Мы посчитаем закат, тишину и вид по карте и проверим по отзывам, а у каждого факта покажем источник, дату и уровень уверенности.</p>
+  <div class="band${q ? " compact" : ""}"><div class="wrap"><section class="hero">
+    <h1>Отель на Байкале, который подойдёт именно вам</h1>
+    <p class="lead">Опишите поездку своими словами: закат из окна, тишина, вид на лёд, путь до берега. Мы проверим по карте и отзывам и покажем, откуда взяли каждый факт.</p>
     <form class="ask" id="askForm"><label class="sr" for="q" style="position:absolute;left:-999px">Что важно в отеле</label>
-      <textarea id="q" rows="2" placeholder="Например: тихий номер с видом на закат недалеко от моря">${esc(q)}</textarea>
-      <button type="submit">Найти</button></form>
+      <textarea id="q" rows="2" placeholder="Например: тихий номер с видом на закат, рядом с берегом, зимой">${esc(q)}</textarea>
+      <button type="submit">Найти отель</button></form>
     <div class="examples">${EXAMPLES.map(e => `<button type="button" class="ex">${esc(e)}</button>`).join("")}</div>
     <div class="crit" id="crit" aria-live="polite"></div>
-  </section>
+  </section></div></div>
+  <div class="wrap">
   <div class="legend" aria-label="Обозначения"><span>${cert("confirmed")}подтверждено</span><span>${cert("likely")}вероятно</span><span>${cert("weak")}слабые данные</span><span>${cert("disputed")}источники спорят</span><span>${cert("stale")}устарело</span><span>${cert("unknown")}данных нет</span></div>
-  <div class="split"><div class="results" id="results"></div><div class="stick"><div id="map"></div></div></div>`;
+  <div class="split"><div class="results" id="results"></div><div class="stick"><div id="map"></div></div></div></div>`;
   $("#askForm").onsubmit = e => { e.preventDefault(); const v = $("#q").value.trim(); location.hash = "#/?q=" + encodeURIComponent(v); };
   $("#q").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#askForm").requestSubmit(); } });
   $$(".ex").forEach(b => b.onclick = () => { location.hash = "#/?q=" + encodeURIComponent(b.textContent); });
@@ -106,7 +110,7 @@ async function runSearch(q, override, passive) {
   const cov = res.coverage || {};
   // пока фоновая проверка идёт, тихо обновляем выдачу: новые отели появляются сами
   if (cov.pending > 0 && cov.enabled) pollTimer = setTimeout(() => { if (location.hash.startsWith("#/") && !location.hash.startsWith("#/hotel")) runSearch(q, override, true).catch(() => {}); }, 6000);
-  if (!res.results.length && !(cov.candidates || []).length) { box.innerHTML = '<div class="empty">Пока нет отелей. Соберите данные командой docker compose --profile collect run --rm collect.</div>'; return; }
+  if (!res.results.length && !(cov.candidates || []).length) { box.innerHTML = '<div class="empty">Ничего не нашлось. Попробуйте описать иначе или уберите часть условий.</div>'; return; }
   box.innerHTML = coverageHtml(cov, res.results.length) + res.results.map(cardHtml).join("") + candidatesHtml(cov);
   $$(".cmp input", box).forEach(c => { c.checked = state.compare.has(c.value); c.onchange = () => { c.checked ? state.compare.add(c.value) : state.compare.delete(c.value); cmpBar(); }; });
   cmpBar();
@@ -125,17 +129,17 @@ function coverageHtml(cov, shown) {
   if (!cov || !cov.total) return "";
   const rest = cov.enriched < cov.total;
   const live = cov.pending > 0
-    ? `<span class="pulse" aria-hidden="true"></span> Проверяем ещё ${cov.pending} — результаты обновятся сами.`
-    : !rest ? "" : cov.enabled ? "Подходящие под новый запрос проверяются автоматически." : "Фоновая проверка выключена.";
-  return `<div class="cover" role="status"><b>Проверено глубоко: ${cov.enriched} из ${cov.total}</b> отелей региона.${rest ? " Остальные пока известны только по каталогу: цена, метро, оценка." : ""} ${live}</div>`;
+    ? `<span class="pulse" aria-hidden="true"></span> Изучаем ещё ${cov.pending}, список обновится сам.`
+    : !rest ? "" : cov.enabled ? "Подходящие под ваш запрос мы изучаем автоматически." : "Автоматическая проверка выключена.";
+  return `<div class="cover" role="status"><b>Подробно изучено ${cov.enriched} из ${cov.total} отелей региона.</b>${rest ? " По остальным пока есть только данные каталога: цена, оценка, расстояния." : ""} ${live}</div>`;
 }
 function candidatesHtml(cov) {
   const cs = (cov && cov.candidates) || [];
   if (!cs.length) return "";
-  const st = { candidate: "в очереди на проверку", queued: "в очереди на проверку", running: "проверяем сейчас…", failed: "не удалось проверить" };
-  return `<h3 class="cand-h">Ещё подходят по каталогу, проверяем</h3>` + cs.map(c => `<article class="card cand">
+  const st = { candidate: "в очереди", queued: "в очереди", running: "изучаем сейчас…", failed: "не удалось загрузить" };
+  return `<h3 class="cand-h">Возможно подойдут: изучаем</h3>` + cs.map(c => `<article class="card cand">
     <div class="bd"><h3>${esc(c.name)}</h3>
-    <div class="meta"><span>${stars(c.stars)}</span>${c.rating ? `<span>оценка ${c.rating} (${c.reviews} отз.)</span>` : ""}${c.price ? `<span>от ${money(c.price)}</span>` : ""}${c.subway ? `<span>метро ${esc(c.subway)}</span>` : ""}<span>${esc(c.address || "")}</span></div>
+    <div class="meta"><span>${stars(c.stars)}</span>${c.rating ? `<span>оценка ${rate(c.rating)} (${c.reviews} отз.)</span>` : ""}${c.price ? `<span>от ${money(c.price)}</span>` : ""}${c.subway ? `<span>метро ${esc(c.subway)}</span>` : ""}<span>${esc(c.address || "")}</span></div>
     <ul class="why">${(c.notes || []).map(n => `<li><span class="vd vd-maybe">≈</span><span>${esc(n)} <span class="age">данные каталога, не проверено</span></span></li>`).join("")}</ul>
     <div class="muted"><span class="pill">${st[c.status] || st.candidate}</span>${c.status === "failed" && c.error ? ` ${esc(c.error)}` : ""}</div></div></article>`).join("");
 }
@@ -143,15 +147,16 @@ function cardHtml(r) {
   const lb = r.label === "Не подходит" ? "lb-Не" : r.label.startsWith("Подходит") ? "lb-Подходит" : "";
   const items = r.items.filter(i => i.feature !== "text").slice(0, 5);
   return `<article class="card" data-id="${esc(r.id)}">
-    <div class="ph" ${photoBox(r)}>${r.photo ? "" : initials(r.name)}</div>
+    <a class="ph" href="#/hotel/${encodeURIComponent(r.id)}" aria-label="${esc(r.name)}" ${photoBox(r)}>${r.photo ? "" : initials(r.name)}</a>
     <div class="bd">
-      <h3><a href="#/hotel/${encodeURIComponent(r.id)}">${esc(r.name)}</a></h3>
-      <div class="meta"><span>${stars(r.stars)}</span>${r.rating ? `<span>оценка ${r.rating} (${r.reviews} отз.)</span>` : ""}${r.price_from ? `<span>от ${money(r.price_from)}</span>` : ""}<span>${esc(r.address || "")}</span></div>
-      <div class="score"><div class="bar" role="img" aria-label="Совпадение ${r.score}%"><i style="width:${r.score}%"></i></div><span class="num"><b>${r.score}%</b></span><span class="label ${lb}">${esc(r.label)}</span></div>
+      <div class="top-row"><h3><a href="#/hotel/${encodeURIComponent(r.id)}">${esc(r.name)}</a></h3>${r.price_from ? `<div class="price">от ${money(r.price_from)}<small>за ночь</small></div>` : ""}</div>
+      <div class="meta">${r.stars ? `<span class="st-stars" title="${r.stars} зв.">${stars(r.stars)}</span>` : ""}${r.rating ? `<span>оценка ${rate(r.rating)}${r.reviews ? ` · ${r.reviews} отз.` : ""}</span>` : ""}<span>${esc(shortAddr(r.address))}</span></div>
+      <div class="score"><div class="bar" role="img" aria-label="Совпадение ${r.score}%"><i style="width:${r.score}%"></i></div><span class="num">${r.score}%</span><span class="label ${lb}">${esc(r.label)}</span></div>
       <ul class="why">${items.map(i => `<li><span class="vd vd-${i.verdict}" title="${i.verdict}">${VERDICT[i.verdict] || "?"}</span><span><b>${esc(i.title)}</b>${i.scope_title && i.scope !== "hotel" ? ` <span class="pill">${esc(i.scope_title)}</span>` : ""} — ${esc(i.conflict && i.verdict === "disputed" ? i.conflict : i.text)} ${i.age_days != null ? `<span class="age">${ageText(i.age_days)}</span>` : ""}</span></li>`).join("")}</ul>
-      <label class="cmp"><input type="checkbox" value="${esc(r.id)}"> Сравнить</label>
+      <label class="cmp"><input type="checkbox" value="${esc(r.id)}"> Добавить в сравнение</label>
     </div></article>`;
 }
+function shortAddr(a) { return String(a || "").replace(/^Россия,?\s*/, "").replace(/Иркутская область,?\s*/, "").replace(/Иркутский район,?\s*/, "").replace(/Ольхонский район,?\s*/, ""); }
 function cmpBar() {
   let b = $("#cmpbar");
   if (state.compare.size < 1) { b && b.remove(); return; }
@@ -164,7 +169,7 @@ let markers = null;
 function initMap() {
   if (state.map) { state.map.remove(); state.map = null; }
   if (!window.L) return;
-  state.map = L.map("map", { scrollWheelZoom: false }).setView([59.935, 30.33], 12);
+  state.map = L.map("map", { scrollWheelZoom: false }).setView([52.4, 106.3], 7);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(state.map);
   markers = L.layerGroup().addTo(state.map);
 }
@@ -237,7 +242,7 @@ async function pageHotel(id) {
   main.innerHTML = `
   <div class="crumbs"><a href="#/">← К поиску</a></div>
   ${gal}
-  <div class="htitle"><div><h1>${esc(h.name)}</h1><div class="meta"><span>${stars(h.stars)}</span>${h.rating ? `<span>оценка ${h.rating} (${h.reviews} отз.)</span>` : ""}${h.price_from ? `<span>от ${money(h.price_from)}</span>` : ""}<span>${esc(h.address || "")}</span>${h.stats.floors ? `<span>${h.stats.floors} эт.</span>` : ""}${h.stats.year_built ? `<span>${h.stats.year_built} г.</span>` : ""}</div></div>
+  <div class="htitle"><div><h1>${esc(h.name)}</h1><div class="meta">${h.stars ? `<span class="st-stars">${stars(h.stars)}</span>` : ""}${h.rating ? `<span>оценка ${rate(h.rating)} (${h.reviews} отз.)</span>` : ""}${h.price_from ? `<span>от ${money(h.price_from)}</span>` : ""}<span>${esc(h.address || "")}</span>${h.stats.floors ? `<span>${h.stats.floors} эт.</span>` : ""}${h.stats.year_built ? `<span>${h.stats.year_built} г.</span>` : ""}</div></div>
     <div>${h.url && !h.synthetic ? `<a class="btn ghost" href="${esc(h.url)}" target="_blank" rel="noopener">Страница на Островке</a>` : ""} <button class="quiet" id="cmpAdd">В сравнение</button></div></div>
   ${h.description ? `<p class="muted" style="max-width:80ch">${esc(h.description.slice(0, 420))}${h.description.length > 420 ? "…" : ""}</p>` : ""}
   <section class="blk"><h2>Что мы знаем об отеле</h2>
@@ -263,7 +268,7 @@ async function pageHotel(id) {
     <h3 style="margin-top:16px">История изменений</h3>
     <ul class="events" id="evs">${h.events.length ? h.events.map(e => `<li>${esc(e.text)} <small class="muted">${esc((e.ts || "").slice(0, 16).replace("T", " "))}</small></li>`).join("") : '<li class="muted">Пока без изменений.</li>'}</ul></section></div>
   <section class="blk"><h2>Отзывы гостей</h2>${h.guest_photos.length ? `<div class="photos-row" style="margin-bottom:10px">${h.guest_photos.slice(0, 12).map(u => `<img loading="lazy" src="${esc(u)}" alt="Фото гостей">`).join("")}</div>` : ""}
-    ${h.reviews_list.map(r => `<div class="rev"><small class="muted">${esc(r.date || "")}${r.rating ? " · " + r.rating + "/10" : ""}${r.room ? " · " + esc(r.room) : ""}</small>${r.plus ? `<div><b class="p">+</b> ${esc(r.plus)}</div>` : ""}${r.minus ? `<div><b class="m">−</b> ${esc(r.minus)}</div>` : ""}${r.text ? `<div>${esc(r.text)}</div>` : ""}</div>`).join("") || '<div class="empty">Отзывов нет.</div>'}</section>`;
+    ${h.reviews_list.slice(0, 10).map(r => `<div class="rev"><small class="muted">${esc(r.date || "")}${r.rating ? " · " + r.rating + "/10" : ""}${r.room ? " · " + esc(r.room) : ""}</small>${r.plus ? `<div><b class="p">+</b> ${esc(r.plus)}</div>` : ""}${r.minus ? `<div><b class="m">−</b> ${esc(r.minus)}</div>` : ""}${r.text ? `<div>${esc(r.text)}</div>` : ""}</div>`).join("") || '<div class="empty">Отзывов нет.</div>'}${h.reviews_list.length > 10 ? `<p class="muted" style="margin-top:12px">Показаны 10 из ${h.reviews_list.length} отзывов. Остальные на <a href="${esc(h.url || "#")}" target="_blank" rel="noopener">странице отеля на Островке</a>.</p>` : ""}</section>`;
   $$("[data-big]").forEach(d => d.onclick = () => window.open(d.dataset.big, "_blank"));
   $$("[data-src]").forEach(b => b.onclick = () => openSource(id, b.dataset.src, b.dataset.scope));
   $("#cmpAdd").onclick = () => { state.compare.add(id); cmpBar(); toast("Добавлено в сравнение"); };
@@ -292,7 +297,7 @@ async function drawHorizon(id) {
   const cv = $("#hz"); if (!cv) return;
   const W = cv.width = cv.clientWidth * (window.devicePixelRatio || 1), H = cv.height = 300 * (window.devicePixelRatio || 1);
   const g = cv.getContext("2d");
-  if (!d.available) { g.fillStyle = "#1b2a3a"; g.fillRect(0, 0, W, H); g.fillStyle = "#fff"; g.font = `${14 * (devicePixelRatio || 1)}px Onest`; g.fillText("Нет данных карты для этого отеля — соберите тайлы OSM (collect_osm.py)", 20, 40); $("#hzVerdict").textContent = ""; return; }
+  if (!d.available) { g.fillStyle = "#1b2a3a"; g.fillRect(0, 0, W, H); g.fillStyle = "#fff"; g.font = `${14 * (devicePixelRatio || 1)}px "Golos Text", system-ui, sans-serif`; g.fillText("Нет данных карты для этого отеля — соберите тайлы OSM (collect_osm.py)", 20, 40); $("#hzVerdict").textContent = ""; return; }
   const span = 62, minEl = -3, maxEl = 32, k = devicePixelRatio || 1;
   const X = rel => (rel + span) / (2 * span) * W, Y = el => H - (el - minEl) / (maxEl - minEl) * H;
   const sky = g.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, "#1c2757"); sky.addColorStop(.6, "#6d4a7e"); sky.addColorStop(1, "#f2a33a");
@@ -312,7 +317,7 @@ async function drawHorizon(id) {
     g.fillStyle = d.sunset_visible ? "#ffd166" : "#ffd16688"; g.beginPath(); g.arc(sx, sy, 11 * k, 0, 7); g.fill();
     g.strokeStyle = d.sunset_visible ? "#0e8f7e" : "#c2255c"; g.lineWidth = 3 * k; g.beginPath(); g.arc(sx, sy, 15 * k, 0, 7); g.stroke();
   }
-  g.fillStyle = "#fff"; g.font = `${12 * k}px Onest`;
+  g.fillStyle = "#fff"; g.font = `${12 * k}px "Golos Text", system-ui, sans-serif`;
   [-45, 0, 45].forEach(r => { const a = ((d.facade_az + r) % 360 + 360) % 360; g.fillText(Math.round(a) + "°", X(r) - 10 * k, H - 6 * k); });
   const v = d.sunset_visible;
   $("#hzVerdict").innerHTML = v === null ? `Окна на ${esc(d.side)}: в ${MONTHS[month - 1].replace(/ь$/, "е").replace(/т$/, "те")} солнце садится вне поля зрения этих окон.` :
@@ -353,7 +358,7 @@ async function pageHotelier() {
   const [qs, fr, feats] = await Promise.all([api("/api/questions"), api("/api/freshness"), api("/api/features")]);
   const kinds = Object.fromEntries(feats.map(f => [f.key, f]));
   const todo = [...fr.disputed, ...fr.stale];
-  main.innerHTML = `<div class="htitle" style="margin-top:24px"><h1 style="font-size:32px">Кабинет отельера</h1><button class="quiet" id="lo">Выйти</button></div>
+  main.innerHTML = `<div class="htitle" style="margin-top:24px"><h1>Кабинет отельера</h1><button class="quiet" id="lo">Выйти</button></div>
   <section class="blk"><h2>Вопросы от системы (${qs.length})</h2>
     ${qs.length ? qs.map(q => `<div class="q" data-q="${q.id}"><div><b>${esc(q.hotel)}</b> — ${esc(q.title)} <span class="pill">${{ unknown: "нет данных", disputed: "источники спорят", conflict: "есть расхождение", stale: "данные устарели", weak: "слабые данные" }[q.reason] || q.reason}</span></div><div>${esc(q.text)}</div>
       <textarea rows="2" placeholder="Ответьте как обычно ответили бы коллеге: «Закат виден из номеров на запад с 5 этажа, во двор тихо»"></textarea><div><button class="send">Отправить ответ</button></div><div class="parsed" hidden></div></div>`).join("") : '<div class="empty">Вопросов нет — всё согласовано.</div>'}</section>
@@ -375,7 +380,7 @@ async function pageQuality() {
   const pct = x => Math.round(x * 100) + "%";
   const st = m.by_status, tot = Object.values(st).reduce((a, b) => a + b, 0) || 1;
   const ev = m.evaluation;
-  main.innerHTML = `<h1 style="font-size:32px;margin:26px 0 14px">Качество и свежесть данных</h1>
+  main.innerHTML = `<h1 class="page-h">Качество и свежесть данных</h1>
   <div class="tiles"><div class="tile"><b>${m.hotels}</b><span>отелей</span></div><div class="tile"><b>${m.reviews}</b><span>отзывов проанализировано</span></div><div class="tile"><b>${m.facts_per_hotel}</b><span>фактов на отель из ${m.features} характеристик</span></div>
   <div class="tile"><b>${pct(m.share.confirmed_or_likely)}</b><span>фактов подтверждены или вероятны</span></div><div class="tile"><b>${pct(m.share.multi_source)}</b><span>фактов подтверждены ≥2 источниками</span></div><div class="tile"><b>${pct(m.share.from_geodata)}</b><span>фактов посчитано по геоданным</span></div>
   <div class="tile"><b>${pct(m.share.disputed)}</b><span>фактов — источники спорят</span></div><div class="tile"><b>${pct(m.share.stale)}</b><span>фактов устарели</span></div></div>
@@ -400,7 +405,7 @@ async function pageQuality() {
 async function pageFeatures() {
   const fs = await api("/api/features");
   const groups = {}; fs.forEach(f => (groups[f.group] ||= []).push(f));
-  main.innerHTML = `<h1 style="font-size:32px;margin:26px 0 8px">Характеристики</h1><p class="muted" style="max-width:70ch">Список расширяется без правки кода: опишите, что для гостей важно, — и система сама найдёт упоминания в отзывах, спросит отельеров и подключит новое к поиску.</p>
+  main.innerHTML = `<h1 class="page-h">Характеристики</h1><p class="muted" style="max-width:70ch">Список расширяется без правки кода: опишите, что для гостей важно, — и система сама найдёт упоминания в отзывах, спросит отельеров и подключит новое к поиску.</p>
   <section class="blk"><h2>Добавить характеристику</h2><label for="fd">Опишите словами</label><textarea id="fd" rows="2" placeholder="Например: в номере есть чайник и можно сделать чай ночью"></textarea>
   <div style="margin:10px 0"><button id="fs">Предложить описание</button></div><form id="ff" hidden>
     <div class="form-row"><div><label for="ft">Название</label><input id="ft" required></div><div><label for="fk">Тип</label><select id="fkind"><option value="bool">Да / нет</option><option value="score">Оценка 0–100</option><option value="number">Число</option></select></div></div>
@@ -417,6 +422,5 @@ async function pageFeatures() {
 (async function boot() {
   state.token = sessionStorage.getItem("lupa_token");
   try { META = await api("/api/meta"); } catch { META = { groups: {}, scopes: {} }; }
-  if (META.demo_synthetic) { const b = $("#banner"); b.hidden = false; b.innerHTML = "<b>Демо-набор.</b> Реальные данные Островка ещё не собраны, поэтому показаны придуманные отели и карта (они помечены как тестовые). Соберите настоящие: <code>docker compose run --rm collect</code>."; }
   route();
 })();

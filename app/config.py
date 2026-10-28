@@ -21,7 +21,7 @@ class Settings:
     llm_api_key: str = _env("LLM_API_KEY", "")
     llm_model: str = _env("LLM_MODEL", "gpt-4o-mini")
 
-    region_slug: str = _env("REGION_SLUG", "russia/st._petersburg")
+    region_slug: str = _env("REGION_SLUG", "russia/baykal")
     collect_limit: int = int(_env("COLLECT_LIMIT", "60"))
     collect_catalog_pages: int = int(_env("COLLECT_CATALOG_PAGES", "100"))
     enrich_on_demand: bool = _env("ENRICH_ON_DEMAND", "true").lower() in ("1", "true", "yes")

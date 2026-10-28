@@ -18,7 +18,7 @@ from .config import settings
 
 log = logging.getLogger("lupa.net")
 OSTROVOK = "https://ostrovok.ru"
-OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"]
+OVERPASS = ["https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"]
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 lupa-hackathon/1.0",
     "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
@@ -87,6 +87,7 @@ def fetch_reviews(master_id: str) -> dict | None:
 
 
 def fetch_hotel(region: str, summary: dict) -> dict:
+    region = summary.get("region") or region        # у отеля свой населённый пункт: russia/listvyanka, russia/irkutsk_oblast_khuzhir…
     url = hotel_url(region, summary["master_id"], summary["slug"])
     page = ostrovok.parse_next_data(get(url).text)
     rev = fetch_reviews(summary["master_id"])

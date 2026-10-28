@@ -78,7 +78,6 @@ def overpass_query(ix: int, iy: int) -> str:
   way["railway"~"^(tram|rail|light_rail|subway)$"]["tunnel"!="yes"]{bb};
   way["natural"~"^(coastline|water|beach)$"]{bb};
   way["waterway"~"^(river|canal|riverbank)$"]{bb};
-  relation["natural"="water"]{bb};
   way["leisure"="playground"]{bb};
   nwr["amenity"~"^({'|'.join(sorted(POI_AMENITY))})$"]{bb};
   nwr["shop"~"^({'|'.join(sorted(POI_SHOP))})$"]{bb};
@@ -87,7 +86,11 @@ def overpass_query(ix: int, iy: int) -> str:
   way["landuse"="construction"]{bb};
   way["highway"="construction"]{bb};
 );
-out geom qt;"""
+out geom qt;
+(
+  relation["natural"="water"]{bb};
+);
+out geom{bb} qt;"""
 
 
 def _centroid(geom: list[dict]) -> tuple[float, float] | None:
@@ -153,15 +156,16 @@ def parse_overpass(elements: list[dict], ix: int, iy: int, fetched_at: str) -> d
             continue
         if typ == "way" and (tags.get("natural") in ("coastline", "water") or tags.get("waterway") in ("river", "canal", "riverbank")):
             if len(geom) >= 2:
-                kind = "coastline" if tags.get("natural") == "coastline" else tags.get("waterway") or "water"
+                kind = "coastline" if tags.get("natural") == "coastline" else tags.get("waterway") or ("lake" if tags.get("water") == "lake" else "water")
                 kind = "river" if kind == "riverbank" else kind
                 t["water"].append({"k": kind, "p": _pts(geom)})
             continue
         if typ == "relation" and tags.get("natural") == "water":
+            kind = "lake" if tags.get("water") == "lake" or "Байкал" in (tags.get("name") or "") else "water"
             for m in el.get("members", []):
                 g = m.get("geometry") or []
                 if m.get("role") == "outer" and len(g) >= 2:
-                    t["water"].append({"k": "water", "p": _pts(g)})
+                    t["water"].append({"k": kind, "p": _pts(g)})
             continue
         # точечные объекты
         if typ == "node":

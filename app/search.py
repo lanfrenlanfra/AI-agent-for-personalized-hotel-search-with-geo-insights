@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from . import db, llm, registry
+from . import db, llm, ostrovok, registry
 from .collectors.base import SCOPE_TITLES, today
 from .collectors.geo import geo_landmarks
 
@@ -394,7 +394,8 @@ def hotel_row(r) -> dict:
     d = dict(r)
     photos = db.loads(d.get("photos"), {}) or {}
     card = db.loads(d.get("card"), {}) or {}
-    d["photo"] = (photos.get("images") or [None])[0]
+    first = (photos.get("images") or [None])[0]
+    d["photo"] = ostrovok.photo_url(first, "card") if first and first.startswith("/t/") else first
     d["description"] = flatten_description(card.get("description"))
     return d
 
