@@ -174,7 +174,7 @@ async function pageFrog() {
   let image = st0 ? st0.image : null;
   main.innerHTML = `<section class="frog-home${st0 ? " done" : ""}" id="fh">
     ${MASCOT()}
-    <h1>${st0 ? "Вот что я нашла" : "Какой отдых на Байкале вы хотите?"}</h1>
+    <h1>${st0 ? "Вот что я нашла" : "Какое жильё на Байкале вы хотите?"}</h1>
     <p class="sub">Расскажите своими словами, можно приложить фото-референс. Я подберу три отеля и проверю их по карте.</p>
     <form class="ask-card" id="af">
       <label for="q" style="position:absolute;left:-999px">Опишите, какой отель вы ищете</label>
