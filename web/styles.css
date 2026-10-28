@@ -213,9 +213,9 @@ th { font-weight: 600; background: var(--ice2); border-top: 0; }
 .frog-home.done h1 { font-size: clamp(20px, 2.4vw, 26px); max-width: none; }
 .frog-home .sub { margin: -10px 0 0; color: var(--ink2); font-size: 17px; max-width: 46ch; }
 .frog-home.done .sub { display: none; }
-.ask-card { width: 100%; max-width: 540px; background: var(--paper); border-radius: 24px; padding: 12px 12px 12px 18px; text-align: left; box-shadow: 0 0 0 1.5px var(--forest), 0 18px 48px #0f3d2a14; transition: box-shadow .15s; }
+.ask-card { width: 100%; max-width: 460px; background: var(--paper); border-radius: 24px; padding: 12px 12px 12px 18px; text-align: left; box-shadow: 0 0 0 1.5px var(--forest), 0 18px 48px #0f3d2a14; transition: box-shadow .15s; }
 .ask-card:focus-within { box-shadow: 0 0 0 2.5px var(--lime-d), 0 18px 48px #0f3d2a1f; }
-.ask-card textarea { border: 0; background: transparent; font-size: 18px; line-height: 1.45; padding: 6px 4px; min-height: 60px; resize: none; width: 100%; }
+.ask-card textarea { border: 0; background: transparent; font-size: 18px; line-height: 1.45; padding: 6px 4px; min-height: 150px; resize: none; width: 100%; }
 .ask-card textarea:focus-visible { outline: none; }
 .ask-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ask-row .grow { flex: 1; }
