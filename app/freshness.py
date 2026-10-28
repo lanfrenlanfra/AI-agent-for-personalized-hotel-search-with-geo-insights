@@ -16,7 +16,7 @@ from datetime import date, timedelta
 
 from . import db, hotelier, pipeline, reconcile, registry
 from .collectors import geo as geo_collector
-from .collectors.base import SCOPE_TITLES, now_iso, today
+from .collectors.base import SCOPE_TITLES, SOURCES, now_iso, today
 from .config import settings
 
 log = logging.getLogger("lupa.freshness")
@@ -61,7 +61,9 @@ def events(limit: int = 50, hotel_id: str | None = None) -> list[dict]:
 
 def _event_text(kind: str, title: str | None, p: dict) -> str:
     if kind == "changed":
-        return f'«{title}»: было {p.get("old")}, стало {p.get("new")} (источник: {p.get("source")})'
+        def fmt(v):
+            return "да" if v is True else "нет" if v is False else str(v)
+        return f'«{title}»: было {fmt(p.get("old"))}, стало {fmt(p.get("new"))} (источник: {SOURCES.get(p.get("source"), {}).get("title", p.get("source"))})'
     return kind
 
 

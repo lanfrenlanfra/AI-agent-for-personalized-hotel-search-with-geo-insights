@@ -8,3 +8,4 @@ runtime/
 *.db-journal
 .DS_Store
 node_modules/
+data/demo/

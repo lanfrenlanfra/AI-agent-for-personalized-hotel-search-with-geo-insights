@@ -1,0 +1,38 @@
+# Запуск: docker compose up --build   →   http://localhost:8080
+services:
+  app:
+    build: .
+    platform: linux/amd64
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_PORT: "8080"
+    volumes:
+      - lupa-runtime:/app/runtime        # база с ответами отельеров и разметкой переживает перезапуск
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).status == 200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
+  # Сбор настоящих данных (нужен интернет): docker compose --profile collect run --rm collect
+  collect:
+    build: .
+    platform: linux/amd64
+    profiles: ["collect"]
+    env_file:
+      - path: .env
+        required: false
+    user: "0:0"
+    working_dir: /app
+    volumes:
+      - ./data:/app/data                  # результат сразу попадает в репозиторий
+    entrypoint: ["sh", "-c", "python scripts/collect_ostrovok.py && python scripts/collect_osm.py"]
+
+volumes:
+  lupa-runtime:

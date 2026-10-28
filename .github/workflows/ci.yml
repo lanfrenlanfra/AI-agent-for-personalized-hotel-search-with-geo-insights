@@ -1,0 +1,26 @@
+name: ci
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build
+      - run: |
+          docker compose up -d
+          for i in $(seq 1 30); do curl -fs localhost:8080/health && break || sleep 3; done
+          curl -fs localhost:8080/health
+          curl -fs "localhost:8080/api/search?q=тихий+номер" > /dev/null
+          docker compose down -v

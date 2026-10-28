@@ -160,9 +160,14 @@ async def hotel_map(request: Request):
 # ───────────────────────── поиск / сравнение ─────────────────────────
 
 async def api_search(request: Request):
-    q = request.query_params.get("q", "") if request.method == "GET" else (await body(request)).get("q", "")
     limit = int(request.query_params.get("limit", 30))
-    return ok(search.search(q.strip(), limit))
+    if request.method == "GET":
+        return ok(search.search(request.query_params.get("q", "").strip(), limit))
+    d = await body(request)
+    parsed = None
+    if isinstance(d.get("intents"), list):       # пользователь убрал или поправил критерии разобранного запроса
+        parsed = {"query": d.get("q", ""), "intents": d["intents"], "filters": d.get("filters") or {}, "text_terms": [], "parsed_by": "edited"}
+    return ok(search.search((d.get("q") or "").strip(), limit, parsed))
 
 
 async def api_parse(request: Request):
