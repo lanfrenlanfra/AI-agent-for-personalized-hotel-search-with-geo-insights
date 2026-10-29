@@ -17,12 +17,12 @@ from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import frog, catalog, db, enrich, freshness, hotelier, horizon, identify, ingest, llm, metrics, ostrovok, pipeline, probes, reconcile, registry, search
+from . import frog, catalog, db, enrich, freshness, hotelier, horizon, identify, llm, metrics, ostrovok, pipeline, probes, reconcile, registry, search
 from .collectors.base import SCOPE_TITLES, SOURCES
-from .config import BASE_DIR, settings
+from .config import settings
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("lupa")
+log = logging.getLogger("kva")
 TOKENS: dict[str, str] = {}
 
 
@@ -43,7 +43,7 @@ async def body(request: Request) -> dict:
 
 
 def need_hotelier(request: Request) -> str | None:
-    tok = request.headers.get("x-token") or request.cookies.get("lupa_token")
+    tok = request.headers.get("x-token") or request.cookies.get("kva_token")
     return TOKENS.get(tok or "")
 
 
@@ -450,7 +450,7 @@ async def hotelier_login(request: Request):
         tok = secrets.token_urlsafe(24)
         TOKENS[tok] = d["login"]
         resp = ok({"token": tok, "login": d["login"]})
-        resp.set_cookie("lupa_token", tok, httponly=True, samesite="lax", max_age=8 * 3600)
+        resp.set_cookie("kva_token", tok, httponly=True, samesite="lax", max_age=8 * 3600)
         return resp
     return err("неверный логин или пароль", 401)
 

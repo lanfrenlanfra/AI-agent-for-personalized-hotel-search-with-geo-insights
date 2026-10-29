@@ -19,7 +19,7 @@ from .. import db
 from ..collectors.base import Obs, now_iso, save_observations
 from ..config import settings
 
-log = logging.getLogger("lupa.probes")
+log = logging.getLogger("kva.probes")
 
 
 @dataclass

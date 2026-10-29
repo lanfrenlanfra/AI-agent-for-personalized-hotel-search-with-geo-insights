@@ -2,14 +2,14 @@
  *
  *  1. Откройте в Chrome https://ostrovok.ru/hotel/russia/st._petersburg/ (любой регион каталога).
  *  2. Откройте консоль (F12 → Console), вставьте весь этот файл и нажмите Enter.
- *  3. Подождите — скрипт ходит по страницам с паузой и в конце скачает lupa-bundle.json.
- *  4. Положите файл в корень репозитория и выполните:  python scripts/import_bundle.py lupa-bundle.json
+ *  3. Подождите — скрипт ходит по страницам с паузой и в конце скачает kva-bundle.json.
+ *  4. Положите файл в корень репозитория и выполните:  python scripts/import_bundle.py kva-bundle.json
  *
  * Скрипт читает только публичные страницы, которые вы и так видите, с вашей сессией, и ничего никуда не отправляет:
  * результат сохраняется локальным файлом.
  */
 (async () => {
-  const LIMIT = window.LUPA_LIMIT || 30, MIN_REVIEWS = 15, DELAY = 1500;
+  const LIMIT = window.KVA_LIMIT || 30, MIN_REVIEWS = 15, DELAY = 1500;
   const region = location.pathname.replace(/^\/hotel\//, "").replace(/\/$/, "").split("/").slice(0, 2).join("/");
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const nextData = html => {
@@ -47,6 +47,6 @@
   }
   const blob = new Blob([JSON.stringify({ schema: 1, exported_at: new Date().toISOString(), hotels: out })], { type: "application/json" });
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = "lupa-bundle.json"; document.body.appendChild(a); a.click(); a.remove();
+  a.href = URL.createObjectURL(blob); a.download = "kva-bundle.json"; document.body.appendChild(a); a.click(); a.remove();
   console.log("готово, отелей:", out.length);
 })();

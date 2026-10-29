@@ -47,7 +47,7 @@ class Settings:
 
     @property
     def db_path(self) -> Path:
-        return self.runtime_dir / "lupa.db"
+        return self.runtime_dir / "kva.db"
 
     @property
     def llm_enabled(self) -> bool:

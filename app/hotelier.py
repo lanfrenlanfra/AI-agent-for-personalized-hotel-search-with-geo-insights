@@ -12,8 +12,8 @@ from typing import Any
 
 from . import db, llm, registry
 from .collectors import reviews as rv
-from .collectors.base import SCOPE_TITLES, SIDE_KEYS, Obs, now_iso, save_observations, today
-from .reconcile import STATUS_TITLES, reconcile_hotel
+from .collectors.base import SCOPE_TITLES, Obs, now_iso, save_observations, today
+from .reconcile import reconcile_hotel
 
 DIRECTIONS = [
     (r"юго-?запад", "room:southwest"), (r"северо-?запад", "room:northwest"), (r"юго-?восток", "room:southeast"), (r"северо-?восток", "room:northeast"),

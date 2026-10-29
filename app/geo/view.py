@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import math
-from datetime import date
 
 from .proj import angdiff, compass_ru
 from .scene import Scene, footprint_facades, synthetic_facades

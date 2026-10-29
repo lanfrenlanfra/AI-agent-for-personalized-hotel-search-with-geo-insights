@@ -27,7 +27,7 @@ import numpy as np
 
 from .config import settings
 
-log = logging.getLogger("lupa.dem")
+log = logging.getLogger("kva.dem")
 
 TILE = 256
 URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"

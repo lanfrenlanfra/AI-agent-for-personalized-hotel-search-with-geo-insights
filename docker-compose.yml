@@ -13,7 +13,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"   # чтобы контейнер видел Ollama на вашем компьютере (Linux; на Mac/Windows работает и так)
     volumes:
-      - lupa-runtime:/app/runtime        # база с ответами отельеров и разметкой переживает перезапуск
+      - kva-runtime:/app/runtime        # база с ответами отельеров и разметкой переживает перезапуск
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).status == 200 else 1)"]
       interval: 10s
@@ -93,5 +93,5 @@ services:
     entrypoint: ["python", "scripts/check_sources.py"]
 
 volumes:
-  lupa-runtime:
+  kva-runtime:
   ollama-models:

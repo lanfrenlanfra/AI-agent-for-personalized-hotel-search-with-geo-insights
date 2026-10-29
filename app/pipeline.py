@@ -10,7 +10,7 @@ from .collectors import reviews as review_collector
 from .collectors.base import save_observations
 from .config import settings
 
-log = logging.getLogger("lupa.pipeline")
+log = logging.getLogger("kva.pipeline")
 
 
 def hotel_record(hotel_id: str) -> dict | None:

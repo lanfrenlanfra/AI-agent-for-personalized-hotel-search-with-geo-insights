@@ -18,7 +18,7 @@ def no_network(monkeypatch):
 @pytest.fixture(scope="session")
 def world(tmp_path_factory):
     """Синтетический мир (НЕ данные Островка) + вся обработка. Один раз на сессию тестов."""
-    root = tmp_path_factory.mktemp("lupa")
+    root = tmp_path_factory.mktemp("kva")
     saved = (settings.data_dir, settings.runtime_dir)
     settings.data_dir = root / "data"
     settings.runtime_dir = root / "runtime"

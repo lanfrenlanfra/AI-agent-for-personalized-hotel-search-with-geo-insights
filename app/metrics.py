@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-import math
 
 from . import db, registry
 from .collectors.base import SOURCES

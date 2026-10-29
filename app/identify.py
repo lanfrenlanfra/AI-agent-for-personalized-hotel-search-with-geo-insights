@@ -24,7 +24,7 @@ from functools import lru_cache
 from . import db, ostrovok
 from .config import settings
 
-log = logging.getLogger("lupa.identify")
+log = logging.getLogger("kva.identify")
 
 # ───────────────────────── по названию ─────────────────────────
 
@@ -226,7 +226,7 @@ def hotel_photos(r) -> list[str]:
 def _download(rel: str) -> bytes:
     import requests
     url = ostrovok.photo_url(rel, "thumb") if rel.startswith("/t/") else rel
-    r = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0 lupa-hackathon/1.0"})
+    r = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0 kva-hackathon/1.0"})
     r.raise_for_status()
     return r.content
 

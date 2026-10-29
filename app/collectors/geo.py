@@ -15,7 +15,7 @@ import yaml
 from .. import dem, osmextra, osmtiles
 from ..config import settings
 from ..geo import noise, sun, surroundings, view, walk
-from ..geo.proj import Frame, haversine
+from ..geo.proj import Frame
 from ..geo.scene import Building, Scene, add_forests, apply_terrain, scene_from_tiles
 from ..geo.terrain import TerrainView
 from .base import SIDE_KEYS, Obs, today
@@ -221,7 +221,6 @@ def collect(rec: dict, scene: Scene | None = None, osm_day: str | None = None, a
     cx, cy = scene.frame.xy(*center_for(rec))
     rc = walk.walk_to(scene, g, [(cx, cy)])
     if rc:
-        dist_c = math.hypot(cx, cy)
         conf = 0.7 if rc["method"] == "graph" else 0.5
         obs.append(_walk_obs("walk_to_center", rc, "до центра", day, conf))
     water_pts = []

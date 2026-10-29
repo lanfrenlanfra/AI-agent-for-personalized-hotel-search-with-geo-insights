@@ -12,11 +12,10 @@
 """
 from __future__ import annotations
 
-import math
 from datetime import date, datetime, timedelta
 
 from . import db, registry
-from .collectors.base import SOURCES, now_iso, today
+from .collectors.base import SOURCES, today
 
 STATUS_TITLES = {
     "confirmed": "Подтверждено",

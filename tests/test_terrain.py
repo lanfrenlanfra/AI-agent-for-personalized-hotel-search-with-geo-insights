@@ -2,7 +2,6 @@ import math
 from datetime import date
 
 import numpy as np
-import pytest
 
 from app import dem
 from app.geo import sun

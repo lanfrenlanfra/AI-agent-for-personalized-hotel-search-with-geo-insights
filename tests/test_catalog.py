@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from app import catalog, db, enrich, ingest, net, ostrovok, pipeline, registry, search
+from app import catalog, db, enrich, net, ostrovok, registry, search
 from app.config import settings
 
 ITEM = {

@@ -27,7 +27,7 @@ import requests
 
 from .config import settings
 
-HEADERS = {"User-Agent": "lupa-hackathon/1.0 (hotel hidden characteristics; contact via project repository)", "Accept": "application/json"}
+HEADERS = {"User-Agent": "kva-hackathon/1.0 (hotel hidden characteristics; contact via project repository)", "Accept": "application/json"}
 BREAKER_FAILS = 2          # подряд неудач, после которых хост считается недоступным
 BREAKER_PAUSE_S = 120.0
 

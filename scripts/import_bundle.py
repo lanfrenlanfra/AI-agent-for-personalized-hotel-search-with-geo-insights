@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Превратить lupa-bundle.json (из scripts/browser_export.js) в data/raw/ostrovok/*.json."""
+"""Превратить kva-bundle.json (из scripts/browser_export.js) в data/raw/ostrovok/*.json."""
 import json
 import sys
 from pathlib import Path
@@ -12,7 +12,7 @@ from app.config import settings  # noqa: E402
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("использование: python scripts/import_bundle.py lupa-bundle.json")
+        print("использование: python scripts/import_bundle.py kva-bundle.json")
         return 2
     bundle = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     # цена, звёзды и расстояния есть в каталоге, на странице отеля без дат их нет

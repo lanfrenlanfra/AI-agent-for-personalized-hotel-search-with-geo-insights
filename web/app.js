@@ -715,7 +715,7 @@ async function pageHotelier() {
   if (!state.token) {
     main.innerHTML = `<section class="hero"><h1>Кабинет отельера</h1><p class="muted" style="max-width:60ch">Отельер отвечает на вопросы системы своими словами, подтверждает или исправляет факты. Его слово весомее всего, но физика (карта) всё равно сверяется.</p>
     <form id="lf" class="blk" style="max-width:420px;margin:0"><label for="lg">Логин</label><input id="lg" value="hotelier" autocomplete="username"><label for="pw">Пароль</label><input id="pw" type="password" autocomplete="current-password"><p class="muted" style="font-size:13px;margin-top:8px">Демо-доступ: hotelier / hotelier123 (задаётся в .env).</p><button type="submit">Войти</button></form></section>`;
-    $("#lf").onsubmit = async e => { e.preventDefault(); try { const r = await api("/api/hotelier/login", { body: { login: $("#lg").value, password: $("#pw").value } }); state.token = r.token; sessionStorage.setItem("lupa_token", r.token); pageHotelier(); } catch (er) { toast(er.message); } };
+    $("#lf").onsubmit = async e => { e.preventDefault(); try { const r = await api("/api/hotelier/login", { body: { login: $("#lg").value, password: $("#pw").value } }); state.token = r.token; sessionStorage.setItem("kva_token", r.token); pageHotelier(); } catch (er) { toast(er.message); } };
     return;
   }
   const [qs, fr, feats] = await Promise.all([api("/api/questions"), api("/api/freshness"), api("/api/features")]);
@@ -727,7 +727,7 @@ async function pageHotelier() {
       <textarea rows="2" placeholder="Ответьте как обычно ответили бы коллеге: «Закат виден из номеров на запад с 5 этажа, во двор тихо»"></textarea><div><button class="send">Отправить ответ</button></div><div class="parsed" hidden></div></div>`).join("") : '<div class="empty">Вопросов нет — всё согласовано.</div>'}</section>
   <section class="blk"><h2>Подтвердить или исправить (${todo.length})</h2><p class="muted">Спорные и устаревшие значения. Ваше подтверждение обновит дату проверки.</p>
     ${todo.length ? `<table><thead><tr><th>Отель</th><th>Характеристика</th><th>Состояние</th><th>Действие</th></tr></thead><tbody>${todo.slice(0, 60).map(t => { const sp = kinds[t.feature] || {}; return `<tr><td>${esc(t.hotel)}</td><td>${esc(t.title)} <span class="pill">${esc(t.scope_title)}</span><br><small class="muted">${esc(t.explanation || "значение устарело: проверено " + t.observed_at)}</small></td><td>${stBadge(t.explanation ? "disputed" : "stale")}</td><td>${sp.kind === "bool" ? `<button class="quiet cf" data-h="${esc(t.hotel_id)}" data-f="${t.feature}" data-s="${esc(t.scope)}" data-v="true">Да, так</button> <button class="quiet cf" data-h="${esc(t.hotel_id)}" data-f="${t.feature}" data-s="${esc(t.scope)}" data-v="false">Нет</button>` : `<input class="cfn" style="width:90px" type="number" placeholder="значение"> <button class="quiet cf" data-h="${esc(t.hotel_id)}" data-f="${t.feature}" data-s="${esc(t.scope)}">Записать</button>`}</td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">Нечего подтверждать.</div>'}</section>`;
-  $("#lo").onclick = () => { state.token = null; sessionStorage.removeItem("lupa_token"); pageHotelier(); };
+  $("#lo").onclick = () => { state.token = null; sessionStorage.removeItem("kva_token"); pageHotelier(); };
   $$(".q").forEach(el => $(".send", el).onclick = async () => {
     const t = $("textarea", el).value.trim(); if (!t) return toast("Напишите ответ");
     try { const r = await api(`/api/questions/${el.dataset.q}/answer`, { body: { text: t } }); const out = $(".parsed", el); out.hidden = false;
@@ -739,7 +739,7 @@ async function pageHotelier() {
 
 /* ───────── старт ───────── */
 (async function boot() {
-  state.token = sessionStorage.getItem("lupa_token");
+  state.token = sessionStorage.getItem("kva_token");
   try { META = await api("/api/meta"); } catch { META = { groups: {}, scopes: {} }; }
   llmStatus();
   route();

@@ -19,7 +19,7 @@ from .collectors import geo as geo_collector
 from .collectors.base import SCOPE_TITLES, SOURCES, now_iso, today
 from .config import settings
 
-log = logging.getLogger("lupa.freshness")
+log = logging.getLogger("kva.freshness")
 
 
 def scan(horizon_days: int = 30) -> dict:
@@ -150,4 +150,4 @@ def start_background() -> None:
             except Exception:  # noqa: BLE001
                 log.exception("фоновая перепроверка упала")
 
-    threading.Thread(target=loop, name="lupa-refresh", daemon=True).start()
+    threading.Thread(target=loop, name="kva-refresh", daemon=True).start()

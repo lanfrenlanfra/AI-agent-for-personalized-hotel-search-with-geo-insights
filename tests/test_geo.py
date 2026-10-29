@@ -1,8 +1,7 @@
-import math
 from datetime import date
 
 from app.geo import noise, sun, view, walk, surroundings
-from app.geo.proj import angdiff, compass_ru, Frame
+from app.geo.proj import angdiff, compass_ru
 from app.geo.scene import footprint_facades
 from tests.geohelp import hotel, make_scene, rect, LAT
 

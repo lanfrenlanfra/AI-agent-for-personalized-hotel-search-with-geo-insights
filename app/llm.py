@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import logging
 import re
 import threading
 import time
@@ -99,7 +100,7 @@ def chat(messages: list[dict], temperature: float = 0.2, timeout: int = 90) -> s
             _remember(key, txt)
         return txt or None
     except Exception as e:  # noqa: BLE001 — любой сбой сети/формата не должен ронять сервис
-        print(f"[llm] ошибка запроса: {e}", flush=True)
+        logging.getLogger("kva.llm").warning("ошибка запроса: %s", e)
         return None
 
 

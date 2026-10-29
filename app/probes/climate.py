@@ -6,7 +6,6 @@
 """
 from __future__ import annotations
 
-from collections import defaultdict
 
 from .. import extcache
 from ..collectors.base import Obs, today
