@@ -14,6 +14,8 @@ from .proj import Frame, bearing_xy, point_in_ring, ray_segment, ring_area
 
 LEVEL_H = 3.1          # метров на этаж
 DEFAULT_HEIGHT = 18.0  # если в OSM нет ни высоты, ни этажности
+FOREST_EDGE_M = 25.0   # окно внутри лесного массива: ближайшие деревья примерно в 25 м
+BASE_CLIP = (-80.0, 400.0)  # разумный перепад земли в пределах сцены; всё за этим — артефакт модели рельефа (например, береговая ячейка)
 
 
 @dataclass
@@ -27,6 +29,8 @@ class Building:
     heritage: bool = False
     levels: int | None = None
     bbox: tuple[float, float, float, float] = (0, 0, 0, 0)
+    base: float = 0.0              # высота земли у здания относительно земли у отеля, м (по рельефу; 0 — рельеф не учтён)
+    kind: str = "building"         # building | forest
 
     def __post_init__(self):
         xs = [p[0] for p in self.ring]
@@ -44,8 +48,12 @@ class Scene:
     beaches: list[dict] = field(default_factory=list)    # {pts}
     pois: list[dict] = field(default_factory=list)       # {k, x, y, name, oh, tags}
     construction: list[dict] = field(default_factory=list)  # {k, x, y}
+    forests: list[Building] = field(default_factory=list)   # лес как препятствие (kind="forest"), отдельно от зданий
+    terrain: object | None = None                           # app.geo.terrain.TerrainView, если рельеф доступен
+    terrain_info: dict = field(default_factory=dict)        # что с рельефом: плитки, ошибка — показывается пользователю
     cell: float = 80.0
     _grid: dict[tuple[int, int], list[int]] = field(default_factory=dict)
+    _fgrid: dict[tuple[int, int], list[int]] = field(default_factory=dict)
 
     # ---------- индекс ----------
     def build_index(self) -> None:
@@ -56,9 +64,16 @@ class Scene:
             for gx in range(int(math.floor(x0 / c)), int(math.floor(x1 / c)) + 1):
                 for gy in range(int(math.floor(y0 / c)), int(math.floor(y1 / c)) + 1):
                     self._grid.setdefault((gx, gy), []).append(i)
+        self._fgrid = {}
+        for i, b in enumerate(self.forests):
+            x0, y0, x1, y1 = b.bbox
+            for gx in range(int(math.floor(x0 / c)), int(math.floor(x1 / c)) + 1):
+                for gy in range(int(math.floor(y0 / c)), int(math.floor(y1 / c)) + 1):
+                    self._fgrid.setdefault((gx, gy), []).append(i)
 
-    def candidates_along(self, ox: float, oy: float, ex: float, ey: float) -> list[int]:
-        """Индексы зданий в ячейках вдоль отрезка O→E."""
+    def candidates_along(self, ox: float, oy: float, ex: float, ey: float, forests: bool = False) -> list[int]:
+        """Индексы зданий (или лесных массивов) в ячейках вдоль отрезка O→E."""
+        grid = self._fgrid if forests else self._grid
         c = self.cell
         L = math.hypot(ex - ox, ey - oy)
         steps = max(1, int(L / (c * 0.5)))
@@ -72,7 +87,7 @@ class Scene:
                 for ddy in (-1, 0, 1):
                     cells.add((gx + ddx, gy + ddy))
         for cell in cells:
-            for i in self._grid.get(cell, ()):
+            for i in grid.get(cell, ()):
                 seen.add(i)
         return list(seen)
 
@@ -102,28 +117,47 @@ class Scene:
     def obstruction_profile(
         self, ox: float, oy: float, az_deg: float, max_dist: float, exclude: set[str] | None = None
     ) -> list[tuple[float, float, bool]]:
-        """Все здания на луче из точки (ox,oy) по азимуту: [(расстояние до входа, высота, explicit)]."""
+        """Все препятствия на луче из точки (ox,oy) по азимуту: [(расстояние, высота верха над землёй отеля, explicit)].
+
+        Высота верха = высота здания + base (рельеф у здания относительно земли у отеля), поэтому дом на склоне выше по холму
+        «выше» дома внизу. Лес считается как препятствие: если точка внутри массива, ближайшее дерево — в 25 м.
+        """
         dx, dy = math.sin(math.radians(az_deg)), math.cos(math.radians(az_deg))
         ex, ey = ox + dx * max_dist, oy + dy * max_dist
         out: list[tuple[float, float, bool]] = []
-        for i in self.candidates_along(ox, oy, ex, ey):
-            b = self.buildings[i]
-            if exclude and b.id in exclude:
+        for forests, lst in ((False, self.buildings), (True, self.forests)):
+            if forests and not lst:
                 continue
-            ts: list[float] = []
-            n = len(b.ring)
-            for k in range(n):
-                ax, ay = b.ring[k]
-                bx, by = b.ring[(k + 1) % n]
-                t = ray_segment(ox, oy, dx, dy, ax, ay, bx, by)
-                if t is not None and t <= max_dist:
-                    ts.append(t)
-            if ts:
-                d = min(ts)
-                if d > 0.5:
-                    out.append((d, b.height, b.explicit))
+            for i in self.candidates_along(ox, oy, ex, ey, forests=forests):
+                b = lst[i]
+                if exclude and b.id in exclude:
+                    continue
+                if forests and point_in_ring(ox, oy, b.ring):
+                    out.append((FOREST_EDGE_M, self._ground(ox + dx * FOREST_EDGE_M, oy + dy * FOREST_EDGE_M) + b.height, True))
+                    continue
+                ts: list[float] = []
+                n = len(b.ring)
+                for k in range(n):
+                    ax, ay = b.ring[k]
+                    bx, by = b.ring[(k + 1) % n]
+                    t = ray_segment(ox, oy, dx, dy, ax, ay, bx, by)
+                    if t is not None and t <= max_dist:
+                        ts.append(t)
+                if ts:
+                    d = min(ts)
+                    if d > 0.5:
+                        base = self._ground(ox + dx * d, oy + dy * d) if forests else b.base     # лес тянется по склону: берём землю в точке входа
+                        out.append((d, base + b.height, b.explicit))
         out.sort()
         return out
+
+    def _ground(self, x: float, y: float) -> float:
+        """Земля в точке (x, y) относительно земли у отеля по рельефу; 0, если рельефа нет."""
+        tv = self.terrain
+        if tv is None:
+            return 0.0
+        g = tv.ground_rel_xy(x, y)
+        return 0.0 if g is None else max(BASE_CLIP[0], min(BASE_CLIP[1], g))
 
 
 # ---------------------------------------------------------------- построение из сырых данных
@@ -235,3 +269,45 @@ def synthetic_facades(x: float = 0.0, y: float = 0.0, half: float = 10.0) -> lis
         out.append({"x": x + nx * half, "y": y + ny * half, "nx": nx, "ny": ny, "az": float(az), "len": 2 * half,
                     "wx": x + nx * (half + 1.5), "wy": y + ny * (half + 1.5)})
     return out
+
+
+def add_forests(sc: Scene, extra_tiles: list[dict], radius: float, height: float) -> int:
+    """Добавить лесные массивы из дополнительных тайлов OSM (app/osmextra.py). Возвращает число добавленных."""
+    n = 0
+    seen: set[tuple] = set()
+    for t in extra_tiles:
+        tid = tuple(t.get("tile", ()))
+        for i, f in enumerate(t.get("forests", [])):
+            ring = [sc.frame.xy(la, lo) for la, lo in f["p"]]
+            if len(ring) > 1 and ring[0] == ring[-1]:
+                ring = ring[:-1]
+            if len(ring) < 3:
+                continue
+            xs, ys = [p[0] for p in ring], [p[1] for p in ring]
+            if max(xs) < -radius or min(xs) > radius or max(ys) < -radius or min(ys) > radius:
+                continue
+            key = (len(ring), round(xs[0]), round(ys[0]))
+            if key in seen:                       # тот же массив, пришедший из соседнего тайла
+                continue
+            seen.add(key)
+            sc.forests.append(Building(f"forest{tid}-{i}", ring, height, True, kind="forest"))
+            n += 1
+    if n:
+        sc.build_index()
+    return n
+
+
+def apply_terrain(sc: Scene, tv) -> None:
+    """Привязать рельеф: у каждого здания появляется base — высота земли относительно земли у отеля."""
+    import numpy as np
+
+    sc.terrain = tv
+    if tv is None or not sc.buildings:
+        return
+    cx = np.array([(b.bbox[0] + b.bbox[2]) / 2 for b in sc.buildings])
+    cy = np.array([(b.bbox[1] + b.bbox[3]) / 2 for b in sc.buildings])
+    lat = tv.lat0 + cy / 111_195.0
+    lon = tv.lon0 + cx / (111_195.0 * math.cos(math.radians(tv.lat0)))
+    z = tv.terrain.elevation(lat, lon) - tv.ground0
+    for b, g in zip(sc.buildings, z):
+        b.base = 0.0 if np.isnan(g) else float(max(BASE_CLIP[0], min(BASE_CLIP[1], g)))

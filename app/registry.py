@@ -27,6 +27,9 @@ def _normalize(spec: dict[str, Any]) -> dict[str, Any]:
     s["synonyms"] = [str(x) for x in (s.get("synonyms") or [])]
     s.setdefault("description", "")
     s.setdefault("computed", False)
+    s.setdefault("decimals", 0)         # знаков после запятой у числовой характеристики
+    s.setdefault("verify", "")          # как проверить самому
+    s.setdefault("limits", "")          # честные ограничения метода
     s.setdefault("good", "high")
     review = s.get("review") or {}
     s["review"] = {"pos": list(review.get("pos") or []), "neg": list(review.get("neg") or [])}
@@ -113,6 +116,8 @@ GROUP_TITLES = {
     "view": "Вид из окна",
     "noise": "Шум и сон",
     "surroundings": "Окружение",
+    "climate": "Климат и солнце",
+    "area": "О месте",
     "guests": "В номере и сервис",
     "custom": "Свои характеристики",
 }

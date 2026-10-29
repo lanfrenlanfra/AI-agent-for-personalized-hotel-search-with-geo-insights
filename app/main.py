@@ -17,7 +17,7 @@ from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import frog, catalog, db, enrich, freshness, hotelier, horizon, identify, ingest, llm, metrics, ostrovok, pipeline, reconcile, registry, search
+from . import frog, catalog, db, enrich, freshness, hotelier, horizon, identify, ingest, llm, metrics, ostrovok, pipeline, probes, reconcile, registry, search
 from .collectors.base import SCOPE_TITLES, SOURCES
 from .config import BASE_DIR, settings
 
@@ -120,9 +120,34 @@ async def hotel_detail(request: Request):
         "guest_photos": photo_urls([i["path"] for i in photos.get("review_images", [])][:24], "card"),
         "facts": facts, "groups": [{"key": k, "title": registry.GROUP_TITLES.get(k, k), "facts": v} for k, v in groups.items()],
         "reviews_list": revs, "questions": qs, "events": freshness.events(15, hid),
+        "probes": probes.runs(hid), "geo_info": db.loads((db.row("SELECT value FROM meta WHERE key=?", (f"geo_info:{hid}",)) or {"value": None})["value"], None),
         "overlay": bool(__import__("app.collectors.geo", fromlist=["x"]).load_overlay(hid)),
     })
     return ok(base)
+
+
+def trust_block(hid: str, feature: str, spec: dict, obs: list[dict], fact) -> dict:
+    """Откуда мы это знаем: источники, способ, как проверить самому, ограничения, срок годности и статус внешней пробы."""
+    live = [o for o in obs if not o["superseded"]]
+    srcs, seen = [], set()
+    for o in live:
+        if o["source"] in seen:
+            continue
+        seen.add(o["source"])
+        meta = SOURCES.get(o["source"], {})
+        srcs.append({"key": o["source"], "title": meta.get("title", o["source"]), "reliability": meta.get("reliability"), "hint": meta.get("hint", ""),
+                     "method": o["method"], "confidence": o["confidence"], "observed_at": o["observed_at"], "simulated": o["simulated"]})
+    links, seen_u = [], set()
+    for o in live:
+        for e in o["evidence"] or []:
+            u = e.get("url")
+            if u and u not in seen_u:
+                seen_u.add(u)
+                links.append({"title": e.get("title") or u, "url": u, "note": e.get("quote", "")[:140]})
+    probe = next((r for r in probes.runs(hid) if feature in r["features"]), None)
+    return {"verify": spec.get("verify") or "", "limits": spec.get("limits") or "", "sources": srcs, "links": links[:10],
+            "expires_at": fact["expires_at"], "ttl_days": spec.get("ttl_days"),
+            "probe": ({"probe": probe["probe"], "title": probe["title"], "status": probe["status"], "message": probe["message"], "ran_at": probe["ran_at"]} if probe else None)}
 
 
 async def fact_detail(request: Request):
@@ -140,7 +165,8 @@ async def fact_detail(request: Request):
                     "detail": v.get("detail"), "confidence": round(o["confidence"], 2), "observed_at": o["observed_at"], "collected_at": o["collected_at"], "method": o["method"],
                     "evidence": db.loads(o["evidence"], []), "simulated": bool(o["simulated"]), "superseded": bool(o["superseded"]), "freshness": state, "freshness_weight": round(w, 2)})
     spec = feats.get(feature) or {}
-    return ok({"fact": fact_view(f, feats), "observations": obs, "spec": {k: spec.get(k) for k in ("key", "title", "description", "kind", "ttl_days", "unit", "good", "question", "computed")},
+    return ok({"fact": fact_view(f, feats), "observations": obs, "trust": trust_block(hid, feature, spec, obs, f),
+               "spec": {k: spec.get(k) for k in ("key", "title", "description", "kind", "ttl_days", "unit", "good", "question", "computed", "verify", "limits")},
                "scopes": [fact_view(x, feats) for x in db.rows("SELECT * FROM facts WHERE hotel_id=? AND feature=? ORDER BY scope", (hid, feature))]})
 
 
@@ -152,6 +178,27 @@ async def hotel_horizon(request: Request):
     except ValueError:
         return err("неверные параметры")
     return ok(res)
+
+
+async def hotel_probes(request: Request):
+    return ok(probes.runs(request.path_params["hid"]))
+
+
+async def hotel_probes_run(request: Request):
+    """Опросить внешние источники (климат, воздух, Википедия, Викисклад) и пересчитать факты. Сеть нужна; без неё — из кэша."""
+    hid = request.path_params["hid"]
+    d = await body(request)
+    rec = pipeline.hotel_record(hid)
+    if not rec:
+        return err("отель не найден", 404)
+    online = bool(d.get("online", True)) and settings.probes_online
+
+    def work():
+        rep = probes.run_all(hid, rec, online=online)
+        reconcile.reconcile_hotel(hid)
+        return rep
+
+    return ok({"online": online, "probes": await run_in_threadpool(work)})
 
 
 async def hotel_map(request: Request):
@@ -518,6 +565,8 @@ routes = [
     Route("/api/hotels/{hid}/facts/{feature}", fact_detail),
     Route("/api/hotels/{hid}/horizon", hotel_horizon),
     Route("/api/hotels/{hid}/map", hotel_map),
+    Route("/api/hotels/{hid}/probes", hotel_probes),
+    Route("/api/hotels/{hid}/probes/run", hotel_probes_run, methods=["POST"]),
     Route("/api/hotels/{hid}/refresh", hotel_refresh, methods=["POST"]),
     Route("/api/hotels/{hid}/demo/building", demo_building, methods=["POST", "DELETE"]),
     Route("/api/search", api_search, methods=["GET", "POST"]),

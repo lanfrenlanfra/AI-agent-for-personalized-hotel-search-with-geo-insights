@@ -33,6 +33,28 @@ def sun_azimuth_at_altitude(lat: float, d: date, alt_deg: float, setting: bool =
     return (360.0 - az) if setting else az
 
 
+def sun_position(lat: float, d: date, hour_angle_deg):
+    """Высота и азимут солнца (по часовой от севера) в солнечное время.
+
+    hour_angle_deg: 0 — истинный полдень, отрицательный — до полудня, положительный — после (15° = 1 час).
+    Принимает число или массив numpy; возвращает (высота°, азимут°) того же вида.
+    """
+    import numpy as np
+
+    dec = math.radians(declination(d))
+    phi = math.radians(lat)
+    H = np.radians(np.asarray(hour_angle_deg, dtype=float))
+    sin_alt = math.sin(phi) * math.sin(dec) + math.cos(phi) * math.cos(dec) * np.cos(H)
+    alt = np.degrees(np.arcsin(np.clip(sin_alt, -1.0, 1.0)))
+    # азимут от юга к западу, затем сдвиг на 180° → от севера по часовой
+    az_s = np.degrees(np.arctan2(np.sin(H), np.cos(H) * math.sin(phi) - math.tan(dec) * math.cos(phi)))
+    az = (az_s + 180.0) % 360.0
+    return alt, az
+
+
+SUN_RISE_SET_ALT = -0.833   # центр диска при видимом восходе/заходе (радиус диска + рефракция)
+
+
 def min_altitude(lat: float, d: date) -> float:
     """Высота солнца в нижней кульминации (в полночь по солнечному времени), градусы."""
     return lat + declination(d) - 90.0 if lat >= 0 else -lat - declination(d) - 90.0

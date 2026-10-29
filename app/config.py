@@ -33,6 +33,14 @@ class Settings:
     hotelier_login: str = _env("HOTELIER_LOGIN", "hotelier")
     hotelier_password: str = _env("HOTELIER_PASSWORD", "hotelier123")
 
+    # рельеф (плитки Terrarium) и внешние источники «скрытых» характеристик
+    dem_enabled: bool = _env("DEM_ENABLED", "true").lower() in ("1", "true", "yes")
+    dem_fetch: bool = _env("DEM_FETCH", "true").lower() in ("1", "true", "yes")          # докачивать недостающие плитки, если есть интернет
+    probes_online: bool = _env("PROBES_ONLINE", "true").lower() in ("1", "true", "yes")  # при проверке отеля по запросу ходить во внешние источники
+    probe_timeout: float = float(_env("PROBE_TIMEOUT", "8"))
+    opencellid_key: str = _env("OPENCELLID_KEY", "")                                      # необязательно: точнее оценка сотовой связи
+    forest_height_m: float = float(_env("FOREST_HEIGHT_M", "14"))                         # типовая высота леса для расчёта видимости
+
     refresh_enabled: bool = _env("REFRESH_ENABLED", "false").lower() in ("1", "true", "yes")
     refresh_interval_min: int = int(_env("REFRESH_INTERVAL_MIN", "60"))
     refresh_online: bool = _env("REFRESH_ONLINE", "false").lower() in ("1", "true", "yes")

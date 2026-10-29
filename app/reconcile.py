@@ -29,7 +29,8 @@ STATUS_TITLES = {
 SOFT_CONFLICT = 0.04   # вес противоречащего свидетельства, начиная с которого показываем расхождение
 AUTHORITY = {"hotelier", "hotelier_sim"}
 SELF_REPORTED = {"ostrovok_card", "ostrovok_ratings"}   # данные, которые вносит сам отель
-PHYSICAL = {"osm_geo", "astronomy"}
+PHYSICAL = {"osm_geo", "dem_geo", "astronomy"}
+MODEL_ONLY = {"osm_geo", "dem_geo", "open_meteo", "open_meteo_aq", "osm_masts"}   # расчёт или модель: одна такая запись «подтверждено» не даёт
 
 
 def _d(s: str | None) -> date:
@@ -76,7 +77,7 @@ def _fmt_value(spec: dict, v) -> str:
     if spec["kind"] == "score":
         return f"{v}/100"
     if spec["kind"] == "number":
-        return f'{v} {spec.get("unit", "")}'.strip()
+        return f'{str(v).replace(".", ",")} {spec.get("unit", "")}'.strip()
     return str(v)
 
 
@@ -194,7 +195,8 @@ def resolve(spec: dict, obs_rows: list[dict], ref: date | None = None) -> dict |
         disputed = bool(against) and W_opp >= 0.25 and W_opp >= 0.5 * W_lead
         wsum = sum(i["weight"] for i in agreeing) or 1.0
         mean = sum(i["value"] * i["weight"] for i in agreeing) / wsum
-        v = int(round(mean))
+        dec = int(spec.get("decimals") or 0)
+        v = round(mean, dec) if (dec and kind == "number") else int(round(mean))
         conf = W_lead * (1.0 - 0.8 * W_opp)
         best = max(agreeing, key=lambda i: i["weight"])
         value = {"v": v, "summary": best["summary"], "detail": best.get("detail")}
@@ -211,7 +213,7 @@ def resolve(spec: dict, obs_rows: list[dict], ref: date | None = None) -> dict |
     stale = all(s == "stale" for s in states)
     has_authority = any(i["source"] in AUTHORITY and not i["simulated"] for i in support)
     sim_only = any(i["simulated"] for i in support) and not has_authority
-    model_only = all(i["source"] == "osm_geo" for i in support)
+    model_only = all(i["source"] in MODEL_ONLY for i in support)
     if disputed:
         status = "disputed"
     elif stale:

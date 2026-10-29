@@ -73,7 +73,13 @@ def process(master_id: str) -> str:
         net.ensure_tiles(rec["lat"], rec["lon"])
     except Exception as e:  # noqa: BLE001 — без карты остаются отзывы и карточка; геофакты появятся при следующей проверке
         log.warning("тайлы OSM для %s: %s", master_id, e)
-    pipeline.process_hotel(hid)
+    try:
+        ex = net.ensure_extras(rec["lat"], rec["lon"])
+        for e in ex["errors"]:
+            log.warning("%s: %s", master_id, e)
+    except Exception as e:  # noqa: BLE001 — лес, вышки и рельеф необязательны; остальное посчитается без них
+        log.warning("доп. данные для %s: %s", master_id, e)
+    pipeline.process_hotel(hid, online=True)
     return hid
 
 

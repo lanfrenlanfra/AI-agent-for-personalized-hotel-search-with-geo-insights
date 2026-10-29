@@ -67,6 +67,31 @@ services:
       - ./data:/app/data                  # результат сразу попадает в репозиторий
     entrypoint: ["sh", "-c", "python scripts/collect_ostrovok.py && python scripts/collect_osm.py"]
 
+  # Рельеф, лес, вышки и ответы внешних API → ./data/raw (нужен интернет): docker compose --profile collect run --rm collect-extra
+  # Перед этим удобно проверить источники:                          docker compose --profile collect run --rm check-sources
+  collect-extra:
+    build: .
+    platform: linux/amd64
+    profiles: ["collect"]
+    env_file:
+      - path: .env
+        required: false
+    user: "0:0"
+    working_dir: /app
+    volumes:
+      - ./data:/app/data
+    entrypoint: ["python", "scripts/collect_extra.py"]
+
+  check-sources:
+    build: .
+    platform: linux/amd64
+    profiles: ["collect"]
+    env_file:
+      - path: .env
+        required: false
+    working_dir: /app
+    entrypoint: ["python", "scripts/check_sources.py"]
+
 volumes:
   lupa-runtime:
   ollama-models:

@@ -505,13 +505,14 @@ async function openSource(hid, feature, scope) {
     <p><b>${esc(f.summary || "")}</b></p>
     <p class="muted">${esc(r.spec.description || "")}</p>
     <p class="muted">Свежесть: значение актуально до ${esc(f.expires_at || "—")} (срок жизни этой характеристики — ${r.spec.ttl_days} дн.).</p>
+    ${trustBlock(r.trust, r.spec)}
     ${f.conflict ? `<div class="warn"><b>${f.conflict.level === "hard" ? "Источники спорят" : "Есть расхождение"}.</b> ${esc(f.conflict.text)}</div>` : ""}
     ${f.conflict ? `<p style="margin-top:12px">${esc(f.explanation.split(". ").slice(-1)[0])}</p>` : `<p style="margin-top:12px">${esc(f.explanation)}</p>`}
     <h3 style="margin-top:18px">Свидетельства (${r.observations.length})</h3>
     ${r.observations.map(o => `<div class="ob ${o.superseded ? "old" : ""}">
       <div><b>${esc(o.source_title)}</b> ${o.simulated ? '<span class="pill">имитация</span>' : ""} ${o.superseded ? '<span class="pill">заменено новым</span>' : ""}</div>
       <div>${esc(o.summary || "")}</div>
-      ${(o.evidence || []).map(e => `<q>${esc(e.quote)}${e.date ? ` <small>(${esc(e.date)}${e.polarity ? ", " + (e.polarity === "за" ? "подтверждает" : "опровергает") : ""})</small>` : ""}</q>`).join("")}
+      ${(o.evidence || []).map(e => `<q>${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">${esc(e.quote)}</a>` : esc(e.quote)}${e.date ? ` <small>(${esc(e.date)}${e.polarity ? ", " + (e.polarity === "за" ? "подтверждает" : "опровергает") : ""}${e.note ? "; " + esc(e.note) : ""})</small>` : ""}</q>`).join("")}
       <small>на дату ${esc(o.observed_at)} · собрано ${esc((o.collected_at || "").slice(0, 10))} · уверенность ${Math.round(o.confidence * 100)}% · вес с учётом свежести ${o.freshness_weight}<br>Метод: ${esc(o.method || "—")}</small></div>`).join("")}
     ${r.scopes.length > 1 ? `<h3>Другие области</h3>${r.scopes.filter(s => s.scope !== scope).map(s => `<p>${cert(s.status)} <b>${esc(s.scope_title)}</b>: ${esc(s.summary)} <button class="link" data-sc="${esc(s.scope)}">подробнее</button></p>`).join("")}` : ""}`;
   $("#dx").onclick = closeDrawer;
@@ -519,6 +520,34 @@ async function openSource(hid, feature, scope) {
   $("#dx").focus();
 }
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+
+
+/* ───────── «Откуда мы это знаем» ───────── */
+const PROBE_STATUS = { ok: ["получено только что", "ok"], cached: ["из сохранённого ответа", "ok"], no_data: ["источник ответил, но данных про это место нет", "weak"],
+  offline: ["данных ещё не собирали", "stale"], error: ["источник не ответил", "bad"] };
+function probeBadge(st) { const [t, c] = PROBE_STATUS[st] || [st, "weak"]; return `<span class="pill pr-${c}">${esc(t)}</span>`; }
+function trustBlock(t, spec) {
+  if (!t) return "";
+  const src = (t.sources || []).map(s => `<li><b>${esc(s.title)}</b>${s.reliability != null ? ` <span class="pill">надёжность источника ${Math.round(s.reliability * 100)}%</span>` : ""}<br><small>${esc(s.hint || "")}${s.method ? `<br>Как получено: ${esc(s.method)}` : ""}</small></li>`).join("");
+  const links = (t.links || []).map(l => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.title)}</a>${l.note ? ` <small>${esc(l.note)}</small>` : ""}</li>`).join("");
+  return `<section class="trust" aria-label="Откуда мы это знаем"><h3>Откуда мы это знаем</h3>
+    ${src ? `<ul>${src}</ul>` : ""}
+    ${t.probe ? `<p>Внешний источник «${esc(t.probe.title)}»: ${probeBadge(t.probe.status)} <small>${esc(t.probe.message || "")}</small></p>` : ""}
+    ${t.verify ? `<p><b>Как проверить самому.</b> ${esc(t.verify)}</p>` : ""}
+    ${links ? `<p><b>Ссылки на источники</b></p><ul>${links}</ul>` : ""}
+    ${t.limits ? `<p class="lim"><b>Чего этот метод не знает.</b> ${esc(t.limits)}</p>` : ""}
+    <p><small>Годен до ${esc(t.expires_at || "—")}${t.ttl_days ? `: значение пересматривается раз в ${t.ttl_days} дн.` : ""}</small></p></section>`;
+}
+function probesBlock(h) {
+  const rows = (h.probes || []).map(p => `<li><b>${esc(p.title)}</b> ${probeBadge(p.status)}<br><small>${esc(p.message || "")}${p.ran_at ? ` · ${esc(p.ran_at.slice(0, 16).replace("T", " "))}` : ""}</small></li>`).join("");
+  const g = h.geo_info && h.geo_info.terrain;
+  const terr = g ? (g.used ? `<p><small>Рельеф: модель высот подключена (${esc(String(g.tiles_cached ?? "?"))} плиток в кэше, ${esc(String(g.tiles_fetched ?? 0))} докачано).</small></p>`
+    : `<p><small>Рельеф: <b>не учтён</b> — ${esc(g.error || "плитки модели высот ещё не скачаны; запустите scripts/collect_extra.py")}. Закат и горы посчитаны по плоской местности и помечены сниженной уверенностью.</small></p>`) : "";
+  return `<section class="blk" id="extsrc"><h2>Внешние источники</h2>
+    <p class="muted" style="max-width:75ch">Климат, воздух, Википедия, фотографии и вышки связи берутся из открытых источников. Если источник недоступен, мы пишем это статусом и не подставляем догадку.</p>
+    <ul class="probes">${rows || '<li class="muted">Пока не опрашивались.</li>'}</ul>${terr}
+    <button class="quiet" id="probeRun">Опросить источники сейчас</button></section>`;
+}
 
 /* ───────── карточка отеля ───────── */
 const SIDES = [["запад", 270], ["северо-запад", 315], ["север", 0], ["северо-восток", 45], ["восток", 90], ["юго-восток", 135], ["юг", 180], ["юго-запад", 225]];
@@ -552,6 +581,7 @@ async function pageHotel(id) {
   <section class="blk"><h2>Что мы знаем об отеле</h2>
     <div class="legend"><span>${cert("confirmed")}подтверждено</span><span>${cert("likely")}вероятно</span><span>${cert("weak")}слабые данные</span><span>${cert("disputed")}источники спорят</span><span>${cert("stale")}устарело</span></div>
     <div class="facts">${h.groups.map(g => `<div class="fgroup"><h3>${esc(g.title)}</h3>${factRows(g.facts)}</div>`).join("") || '<div class="empty">Данных пока нет.</div>'}</div></section>
+  ${probesBlock(h)}
   <section class="blk"><h2>Вид из окна</h2>
     <p class="muted" style="max-width:75ch">Силуэт застройки на горизонте из окна выбранного этажа и путь солнца в день заката. Если солнце в момент заката выше силуэта — закат виден.</p>
     <div class="ctrl"><div><label for="hzSide">Окна на</label><select id="hzSide">${SIDES.map(s => `<option value="${s[1]}">${s[0]}</option>`).join("")}</select></div>
@@ -575,6 +605,7 @@ async function pageHotel(id) {
     ${h.reviews_list.slice(0, 10).map(r => `<div class="rev"><small class="muted">${esc(r.date || "")}${r.rating ? " · " + r.rating + "/10" : ""}${r.room ? " · " + esc(r.room) : ""}</small>${r.plus ? `<div><b class="p">+</b> ${esc(r.plus)}</div>` : ""}${r.minus ? `<div><b class="m">−</b> ${esc(r.minus)}</div>` : ""}${r.text ? `<div>${esc(r.text)}</div>` : ""}</div>`).join("") || '<div class="empty">Отзывов нет.</div>'}${h.reviews_list.length > 10 ? `<p class="muted" style="margin-top:12px">Показаны 10 из ${h.reviews_list.length} отзывов. Остальные на <a href="${esc(h.url || "#")}" target="_blank" rel="noopener">странице отеля на Островке</a>.</p>` : ""}</section>`;
   $$("[data-big]").forEach(d => d.onclick = () => window.open(d.dataset.big, "_blank"));
   $$("[data-src]").forEach(b => b.onclick = () => openSource(id, b.dataset.src, b.dataset.scope));
+  $("#probeRun").onclick = async () => { const b = $("#probeRun"); b.disabled = true; b.textContent = "Опрашиваем…"; try { const r = await api(`/api/hotels/${encodeURIComponent(id)}/probes/run`, { body: { online: true } }); toast(r.online ? "Источники опрошены" : "Сеть для источников отключена: показаны сохранённые ответы"); await pageHotel(id); } catch (e) { toast(e.message); b.disabled = false; b.textContent = "Опросить источники сейчас"; } };
   $("#cmpAdd").onclick = () => { state.compare.add(id); cmpBar(); toast("Добавлено в сравнение"); };
   // вопросы
   $$(".q").forEach(el => {
@@ -612,7 +643,9 @@ async function drawHorizon(id) {
   // путь солнца
   const path = d.sun_path.filter(p => Math.abs(p.rel) <= span);
   g.strokeStyle = "#ffe3a8"; g.lineWidth = 2 * k; g.setLineDash([2 * k, 6 * k]); g.beginPath(); path.forEach((p, i) => i ? g.lineTo(X(p.rel), Y(p.alt)) : g.moveTo(X(p.rel), Y(p.alt))); g.stroke(); g.setLineDash([]);
-  // силуэт
+  // рельеф (горы, холмы) — дальний, более светлый слой под силуэтом застройки
+  if (d.terrain_used) { g.fillStyle = "#26384a"; g.beginPath(); g.moveTo(0, H); d.profile.forEach(p => g.lineTo(X(p.rel), Y(Math.max(p.terrain ?? -9, minEl)))); g.lineTo(W, H); g.closePath(); g.fill(); }
+  // силуэт застройки и леса
   g.fillStyle = "#0e1622"; g.beginPath(); g.moveTo(0, H);
   d.profile.forEach(p => g.lineTo(X(p.rel), Y(Math.max(p.el, minEl)))); g.lineTo(W, H); g.closePath(); g.fill();
   // солнце
@@ -626,7 +659,7 @@ async function drawHorizon(id) {
   const v = d.sunset_visible;
   $("#hzVerdict").innerHTML = v === null ? `Окна на ${esc(d.side)}: в ${MONTHS[month - 1].replace(/ь$/, "е").replace(/т$/, "те")} солнце садится вне поля зрения этих окон.` :
     v ? `<span class="vd-ok">✓</span> С ${floor}-го этажа окон на ${esc(d.side)} закат виден (${MONTHS[month - 1]}).` : `<span class="vd-no">✕</span> С ${floor}-го этажа окон на ${esc(d.side)} закат закрыт застройкой (${MONTHS[month - 1]}). Попробуйте этаж выше.`;
-  $("#hzVerdict").innerHTML += ` <small class="muted">Карта OSM от ${esc(d.osm_date || "—")}${d.real_footprint ? "" : "; контур здания не найден, окна смоделированы"}</small>`;
+  $("#hzVerdict").innerHTML += ` <small class="muted">Карта OSM от ${esc(d.osm_date || "—")}${d.real_footprint ? "" : "; контур здания не найден, окна смоделированы"}; ${d.terrain_used ? "светлым показан рельеф (модель высот), тёмным — застройка и лес" : "рельеф не учтён: горизонт считается ровным"}</small>`;
 }
 async function drawBuildingsMap(h) {
   if (!window.L || !$("#hmap")) return;

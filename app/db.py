@@ -111,6 +111,11 @@ CREATE TABLE IF NOT EXISTS catalog (
 );
 CREATE INDEX IF NOT EXISTS catalog_status ON catalog(enrich_status);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS probe_runs (
+  hotel_id TEXT NOT NULL, probe TEXT NOT NULL,
+  status TEXT NOT NULL, message TEXT, detail TEXT, ran_at TEXT NOT NULL,
+  PRIMARY KEY (hotel_id, probe)
+);
 """
 
 _lock = threading.RLock()

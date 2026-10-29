@@ -56,11 +56,18 @@ def horizon(hotel_id: str, side_az: float, floor: int, month: int, span: float =
     wh = view.window_h(floor)
     prof = []
     az0 = f["az"] - span
+    tv = sc.terrain
     for i in range(int(2 * span / 2) + 1):
         az = (az0 + 2 * i) % 360
         obs = sc.obstruction_profile(f["wx"], f["wy"], az, 1500.0, exclude)
-        el = max((math.degrees(math.atan2(H - wh, d)) for d, H, _ in obs), default=0.0)
-        prof.append({"az": round(az, 1), "rel": round(angdiff(az, f["az"]), 1), "el": round(max(el, -2.0), 2)})
+        el_b = max((math.degrees(math.atan2(H - wh, d)) for d, H, _ in obs), default=0.0)
+        row = {"az": round(az, 1), "rel": round(angdiff(az, f["az"]), 1)}
+        if tv is not None:
+            el_t = tv.horizon_angle(az, wh)
+            row["terrain"] = round(max(el_t, -2.0), 2)       # силуэт одного рельефа — для отдельной заливки на рисунке
+            el_b = max(el_b, el_t)
+        row["el"] = round(max(el_b, -2.0), 2)
+        prof.append(row)
     d = date(2026, month, 15)
     path = []
     for alt in range(0, 26, 2):
@@ -72,8 +79,10 @@ def horizon(hotel_id: str, side_az: float, floor: int, month: int, span: float =
     if sunset is not None and abs(angdiff(sunset, f["az"])) <= view.WINDOW_FOV:
         obs = sc.obstruction_profile(f["wx"], f["wy"], sunset, view.SUN_RANGE, exclude)
         worst = max((math.degrees(math.atan2(H - wh, dd)) for dd, H, _ in obs), default=-90.0)
+        if tv is not None:
+            worst = max(worst, tv.horizon_angle(sunset, wh))
         visible = worst < view.SUN_ALT_DEG
     return {"available": True, "side": compass_ru(f["az"]), "facade_az": round(f["az"]), "floor": floor, "month": month, "fov": view.WINDOW_FOV,
             "profile": prof, "sun_path": path, "sunset_az": round(sunset, 1) if sunset is not None else None,
             "sunset_rel": round(angdiff(sunset, f["az"]), 1) if sunset is not None else None, "sunset_visible": visible,
-            "real_footprint": real, "osm_date": day}
+            "real_footprint": real, "osm_date": day, "terrain_used": tv is not None, "terrain": sc.terrain_info}

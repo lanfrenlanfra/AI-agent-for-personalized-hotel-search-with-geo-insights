@@ -138,3 +138,80 @@ def ensure_tiles(lat: float, lon: float, radius_m: float = 1400.0, max_age_days:
         osmtiles.save_tile(fetch_tile(ix, iy))
         n += 1
     return n
+
+
+# ───────────────────────── дополнительные данные OSM и рельеф ─────────────────────────
+
+_overpass_dead: dict[str, float] = {}
+OVERPASS_DEAD_S = 600.0
+
+
+def _overpass(q: str, timeout: float = 90.0) -> list[dict]:
+    """Запрос к Overpass по зеркалам. Зеркало, которое не ответило, на 10 минут исключается: иначе при недоступном
+    Overpass сбор по десяткам отелей ждал бы часами."""
+    err: Exception | None = None
+    now = time.time()
+    live = [u for u in OVERPASS if now - _overpass_dead.get(u, 0.0) > OVERPASS_DEAD_S] or OVERPASS[:1]
+    for url in live:
+        try:
+            r = session().post(url, data={"data": q}, timeout=timeout)
+            if r.status_code in (429, 504):
+                raise RuntimeError(f"HTTP {r.status_code}")
+            r.raise_for_status()
+            _overpass_dead.pop(url, None)
+            return r.json().get("elements", [])
+        except Exception as e:  # noqa: BLE001
+            _overpass_dead[url] = time.time()
+            err = e
+    raise RuntimeError(f"Overpass недоступен ({', '.join(u.split('/')[2] for u in live)}): {err}")
+
+
+def _stamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def fetch_extra_tile(ix: int, iy: int) -> dict:
+    from . import osmextra
+    return osmextra.parse_tile(_overpass(osmextra.tile_query(ix, iy)), ix, iy, _stamp())
+
+
+def fetch_around(lat: float, lon: float) -> dict:
+    from . import osmextra
+    clat, clon = osmextra.around_center(lat, lon)
+    return osmextra.parse_around(_overpass(osmextra.around_query(clat, clon)), clat, clon, _stamp())
+
+
+def ensure_extras(lat: float, lon: float, radius_m: float = 1400.0, max_age_days: int | None = None) -> dict:
+    """Лес и остановки (тайлы), вышки и вершины (пакет вокруг точки), плитки рельефа. Ошибки по частям не валят остальное."""
+    from . import dem, osmextra
+    out = {"tiles": 0, "around": 0, "dem": None, "errors": []}
+
+    def fresh(obj: dict | None) -> bool:
+        if not obj:
+            return False
+        if max_age_days is None:
+            return True
+        try:
+            return (datetime.now(timezone.utc) - datetime.fromisoformat(obj["fetched_at"])).days <= max_age_days
+        except Exception:  # noqa: BLE001
+            return False
+
+    for ix, iy in osmtiles.tiles_for(lat, lon, radius_m):
+        if fresh(osmextra.load_tile(ix, iy)):
+            continue
+        try:
+            osmextra.save_tile(fetch_extra_tile(ix, iy))
+            out["tiles"] += 1
+        except Exception as e:  # noqa: BLE001
+            out["errors"].append(f"доп. тайл {ix},{iy}: {e}")
+    clat, clon = osmextra.around_center(lat, lon)
+    if not fresh(osmextra.load_around(clat, clon)):
+        try:
+            osmextra.save_around(clat, clon, fetch_around(lat, lon))
+            out["around"] += 1
+        except Exception as e:  # noqa: BLE001
+            out["errors"].append(f"вышки и вершины: {e}")
+    dem.clear_cache()
+    _, info = dem.get(lat, lon, allow_net=True)
+    out["dem"] = info
+    return out

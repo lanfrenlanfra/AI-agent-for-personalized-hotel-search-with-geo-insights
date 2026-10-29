@@ -207,3 +207,31 @@ def test_frog_apartment_is_a_search_not_vague(client):
     assert _ask(client, "хочу квартиру")["top"] == []
     r = _ask(client, "тихий отель")
     assert r["top"] and "kind" not in r["parsed"]["filters"]
+
+
+def test_fact_detail_has_trust_block_with_verify_and_limits(client):
+    f = client.get("/api/hotels/test_dvor_i_zakat/facts/sunset_view").json()
+    t = f["trust"]
+    assert t["verify"] and t["limits"] and t["sources"] and t["expires_at"]
+    assert all(s["title"] and s["reliability"] is not None for s in t["sources"])
+    assert f["spec"]["verify"] == t["verify"]
+
+
+def test_probes_listing_and_offline_run(client, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "probes_online", False)
+    r = client.post("/api/hotels/test_dvor_i_zakat/probes/run", json={"online": True}).json()
+    assert r["online"] is False                                      # сеть отключена настройкой — идём только по кэшу
+    assert {p["probe"] for p in r["probes"]} == {"climate", "air", "wiki", "commons", "masts"}
+    assert all(p["status"] in ("offline", "cached", "ok", "no_data") for p in r["probes"])
+    listed = client.get("/api/hotels/test_dvor_i_zakat/probes").json()
+    assert len(listed) == 5 and client.get("/api/hotels/test_dvor_i_zakat").json()["probes"]
+
+
+def test_probes_run_unknown_hotel_is_404(client):
+    assert client.post("/api/hotels/nope/probes/run", json={}).status_code == 404
+
+
+def test_horizon_reports_terrain_flag(client):
+    h = client.get("/api/hotels/test_dvor_i_zakat/horizon", params={"az": 270, "floor": 5, "month": 6}).json()
+    assert "terrain_used" in h and h["terrain_used"] is False         # в тестовом мире плиток рельефа нет

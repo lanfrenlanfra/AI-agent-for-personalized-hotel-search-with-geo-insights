@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from . import db, hotelier, ingest, reconcile, registry
+from . import db, hotelier, ingest, probes, reconcile, registry
 from .collectors import card as card_collector
 from .collectors import geo as geo_collector
 from .collectors import reviews as review_collector
@@ -37,22 +37,34 @@ def collect_text_sources(hotel_id: str, rec: dict) -> int:
     return len(obs)
 
 
-def collect_geo_source(hotel_id: str, rec: dict) -> int:
-    obs = geo_collector.collect(rec)
+def collect_geo_source(hotel_id: str, rec: dict, allow_net: bool = False) -> int:
+    info: dict = {}
+    obs = geo_collector.collect(rec, allow_net=allow_net, info_out=info)
     save_observations(hotel_id, obs)
+    try:
+        db.execute("INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                   (f"geo_info:{hotel_id}", db.dumps(info)))
+    except Exception:  # noqa: BLE001 — служебная заметка, не данные
+        log.debug("geo_info не записан", exc_info=True)
     return len(obs)
 
 
-def process_hotel(hotel_id: str, geo: bool = True, reviews_only: bool = False) -> dict:
+def process_hotel(hotel_id: str, geo: bool = True, reviews_only: bool = False, online: bool = False) -> dict:
     rec = hotel_record(hotel_id)
     if not rec:
         raise KeyError(hotel_id)
     n = collect_text_sources(hotel_id, rec)
     if geo and not reviews_only:
         try:
-            n += collect_geo_source(hotel_id, rec)
+            n += collect_geo_source(hotel_id, rec, allow_net=online)
         except Exception:  # noqa: BLE001 — сбой геомодели одного отеля не должен ронять остальное
             log.exception("геосборщик упал для %s", hotel_id)
+        try:
+            # сеть — только по явной онлайн-проверке; иначе берём сохранённые ответы, и без них проба честно скажет «нет данных»
+            rep = probes.run_all(hotel_id, rec, online=bool(online and settings.probes_online))
+            n += sum(1 for r in rep if r["status"] in ("ok", "cached"))
+        except Exception:  # noqa: BLE001
+            log.exception("пробы упали для %s", hotel_id)
     reconcile.reconcile_hotel(hotel_id)
     hotelier.generate_questions(hotel_id)
     return {"hotel": hotel_id, "observations": n}

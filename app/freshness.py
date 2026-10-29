@@ -93,11 +93,12 @@ def refresh_hotel(hotel_id: str, online: bool = False) -> dict:
             net.save_record(rec)
             ingest.upsert_hotel(rec)
             net.ensure_tiles(h["lat"], h["lon"], geo_collector.SCENE_RADIUS, max_age_days=60)
+            net.ensure_extras(h["lat"], h["lon"], geo_collector.SCENE_RADIUS, max_age_days=180)
             note = "онлайн: карточка, отзывы и карта перекачаны"
         except Exception as e:  # noqa: BLE001
             note = f"онлайн-обновление не удалось ({e}); пересчитано по сохранённым данным"
             log.warning("%s: %s", hotel_id, note)
-    pipeline.process_hotel(hotel_id)
+    pipeline.process_hotel(hotel_id, online=online)
     changed = [e for e in events(200, hotel_id) if e["id"] > started]
     log_event(hotel_id, "refreshed", {"text": f"Перепроверка: {note}; изменений значений: {len(changed)}", "online": online})
     return {"hotel_id": hotel_id, "note": note, "changes": changed}
