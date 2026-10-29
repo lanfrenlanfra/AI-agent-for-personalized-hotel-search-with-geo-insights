@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Агент Ква — отели на Байкале, которые подходят именно вам</title>
+<meta name="description" content="Опишите, какой отдых хотите на Байкале, а лягушка найдёт три отеля, проверит их по координатам и скажет, что стоит уточнить.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 120 96%27%3E%3Cellipse cx=%2760%27 cy=%2764%27 rx=%2750%27 ry=%2730%27 fill=%27%23b6e34d%27/%3E%3Ccircle cx=%2736%27 cy=%2734%27 r=%2719%27 fill=%27%23b6e34d%27/%3E%3Ccircle cx=%2784%27 cy=%2734%27 r=%2719%27 fill=%27%23b6e34d%27/%3E%3Ccircle cx=%2736%27 cy=%2733%27 r=%2712%27 fill=%27%23fff%27/%3E%3Ccircle cx=%2784%27 cy=%2733%27 r=%2712%27 fill=%27%23fff%27/%3E%3Ccircle cx=%2738%27 cy=%2734%27 r=%276.5%27 fill=%27%230f3d2a%27/%3E%3Ccircle cx=%2782%27 cy=%2734%27 r=%276.5%27 fill=%27%230f3d2a%27/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geologica:wght@300;400;500;600&family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<a class="skip" href="#main">К содержимому</a>
+<header class="top">
+  <a class="brand" href="#/" aria-label="Агент Ква — на главную"><svg width="38" height="32" viewBox="0 0 120 96" aria-hidden="true"><ellipse cx="60" cy="64" rx="50" ry="30" fill="#b6e34d"/><circle cx="36" cy="34" r="19" fill="#b6e34d"/><circle cx="84" cy="34" r="19" fill="#b6e34d"/><circle cx="36" cy="33" r="12" fill="#fff"/><circle cx="84" cy="33" r="12" fill="#fff"/><circle cx="38" cy="34" r="6.5" fill="#0f3d2a"/><circle cx="82" cy="34" r="6.5" fill="#0f3d2a"/><path d="M30 66Q60 88 90 66" stroke="#0f3d2a" stroke-width="4.5" fill="none" stroke-linecap="round"/></svg><span>Агент Ква</span></a>
+  <nav aria-label="Разделы">
+    <a href="#/" data-nav="search">Найти отель</a>
+    <a href="#/hotelier" data-nav="hotelier">Для отельеров</a>
+  </nav>
+</header>
+<main id="main" tabindex="-1"></main>
+<aside id="drawer" class="drawer" aria-hidden="true" role="dialog" aria-label="Откуда это известно"></aside>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<footer class="foot">Агент Ква — прототип для хакатона Островка. Отели: ostrovok.ru, карта: © участники OpenStreetMap.</footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

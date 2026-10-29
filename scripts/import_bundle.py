@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""Превратить kva-bundle.json (из scripts/browser_export.js) в data/raw/ostrovok/*.json."""
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app import net, ostrovok  # noqa: E402
+from app.config import settings  # noqa: E402
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print("использование: python scripts/import_bundle.py kva-bundle.json")
+        return 2
+    bundle = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    # цена, звёзды и расстояния есть в каталоге, на странице отеля без дат их нет
+    cat = {}
+    for f in (settings.data_dir / "raw" / "catalog").glob("*.json"):
+        for r in json.loads(f.read_text(encoding="utf-8")).get("hotels", []):
+            cat[r["master_id"]] = r
+    n = 0
+    for h in bundle.get("hotels", []):
+        try:
+            url = f'{net.OSTROVOK}/hotel/{h["region"]}/mid{h["page"]["hotel"]["masterId"]}/{h["slug"]}/'
+            c = cat.get(str(h["page"]["hotel"]["masterId"]))
+            serp = h.get("serp") or ({"datelessRate": {"amount": c["price"]}, "stars": c["stars"], "searchRegionCenterDistance": c.get("center_m")} if c else None)
+            rec = ostrovok.build_record(h["page"], h["slug"], h["region"], url, serp, h.get("api_reviews"))
+            rec["fetched_at"] = (bundle.get("exported_at") or rec["fetched_at"])
+            print("сохранено:", net.save_record(rec), "—", rec["name"], f'(отзывов: {len(rec["reviews"])})')
+            n += 1
+        except Exception as e:  # noqa: BLE001
+            print("пропуск:", h.get("slug"), e, file=sys.stderr)
+    print(f"готово: {n} отелей. Дальше: python scripts/collect_osm.py и docker compose up --build")
+    return 0 if n else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

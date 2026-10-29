@@ -1,0 +1,97 @@
+# Запуск: docker compose up --build   →   http://localhost:8080
+services:
+  app:
+    build: .
+    platform: linux/amd64
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_PORT: "8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # чтобы контейнер видел Ollama на вашем компьютере (Linux; на Mac/Windows работает и так)
+    volumes:
+      - kva-runtime:/app/runtime        # база с ответами отельеров и разметкой переживает перезапуск
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).status == 200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 150s
+    restart: unless-stopped
+
+  # LLM «из коробки»: Ollama поднимается рядом и сама скачивает небольшую модель (≈3,3 ГБ, один раз; понимает и картинки).
+  # Включается профилем llm (COMPOSE_PROFILES=llm в .env.example). Приложение не ждёт загрузки модели:
+  # пока она качается, разбор идёт по правилам и записанным ответам, потом подключается LLM.
+  # Свой API (Yandex, OpenAI, Ollama на вашем компьютере) — уберите профиль и впишите LLM_* в .env.
+  ollama:
+    image: ollama/ollama:0.40.10
+    profiles: ["llm"]
+    environment:
+      OLLAMA_KEEP_ALIVE: "24h"          # держать модель в памяти между запросами
+      OLLAMA_NUM_PARALLEL: "1"
+    volumes:
+      - ollama-models:/root/.ollama     # скачанные модели переживают перезапуск; в git их нет
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  ollama-pull:
+    image: ollama/ollama:0.40.10
+    profiles: ["llm"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+      PULL_MODEL: "${LLM_MODEL:-gemma3:4b}"
+    entrypoint: ["sh", "-c", "if ollama pull \"$$PULL_MODEL\" && ollama run \"$$PULL_MODEL\" ok >/dev/null 2>&1; then echo \"модель $$PULL_MODEL готова\"; else echo \"ОШИБКА: модель $$PULL_MODEL не скачалась, см. сообщение выше\"; exit 1; fi"]
+    restart: "no"
+
+  # Сбор настоящих данных (нужен интернет): docker compose --profile collect run --rm collect
+  collect:
+    build: .
+    platform: linux/amd64
+    profiles: ["collect"]
+    env_file:
+      - path: .env
+        required: false
+    user: "0:0"
+    working_dir: /app
+    volumes:
+      - ./data:/app/data                  # результат сразу попадает в репозиторий
+    entrypoint: ["sh", "-c", "python scripts/collect_ostrovok.py && python scripts/collect_osm.py"]
+
+  # Рельеф, лес, вышки и ответы внешних API → ./data/raw (нужен интернет): docker compose --profile collect run --rm collect-extra
+  # Перед этим удобно проверить источники:                          docker compose --profile collect run --rm check-sources
+  collect-extra:
+    build: .
+    platform: linux/amd64
+    profiles: ["collect"]
+    env_file:
+      - path: .env
+        required: false
+    user: "0:0"
+    working_dir: /app
+    volumes:
+      - ./data:/app/data
+    entrypoint: ["python", "scripts/collect_extra.py"]
+
+  check-sources:
+    build: .
+    platform: linux/amd64
+    profiles: ["collect"]
+    env_file:
+      - path: .env
+        required: false
+    working_dir: /app
+    entrypoint: ["python", "scripts/check_sources.py"]
+
+volumes:
+  kva-runtime:
+  ollama-models:

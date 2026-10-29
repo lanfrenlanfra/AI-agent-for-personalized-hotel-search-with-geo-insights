@@ -1,0 +1,1 @@
+{"url":"https://archive-api.open-meteo.com/v1/archive?latitude=51.67&longitude=103.69&start_date=2015-01-01&end_date=2024-12-31&daily=temperature_2m_mean,sunshine_duration&timezone=UTC","fetched_at":"2026-10-29T00:44:00+00:00","payload":{"jan_temp":-14.79,"n_jan":310,"winter_sun_h":6.48,"n_sun":903,"grid_elevation":468.0,"years":[2015,2024]}}
