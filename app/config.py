@@ -22,6 +22,22 @@ class Settings:
     llm_model: str = _env("LLM_MODEL", "gpt-4o-mini")
     llm_project: str = _env("LLM_PROJECT", "")       # заголовок OpenAI-Project (нужен Yandex AI Studio: идентификатор каталога)
 
+    # GigaChat (Сбер): свой протокол авторизации и картинок, поэтому отдельный провайдер.
+    # LLM_PROVIDER=gigachat включает его; без явного указания — включается сам, если задан GIGACHAT_AUTH_KEY.
+    gigachat_auth_key: str = _env("GIGACHAT_AUTH_KEY", "")            # «Ключ авторизации» из личного кабинета (base64 от client_id:secret)
+    gigachat_scope: str = _env("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")  # PERS — физлица; B2B/CORP — организации
+    gigachat_model: str = _env("GIGACHAT_MODEL", "GigaChat-2")
+    gigachat_vision_model: str = _env("GIGACHAT_VISION_MODEL", "GigaChat-2-Max")   # для фото — модель, которая видит картинки
+    gigachat_base_url: str = _env("GIGACHAT_BASE_URL", "https://api.giga.chat/v1").rstrip("/")
+    gigachat_auth_url: str = _env("GIGACHAT_AUTH_URL", "https://ngw.devices.sberbank.ru:9443/api/v2/oauth")
+    gigachat_ca_bundle: str = _env("GIGACHAT_CA_BUNDLE", str(BASE_DIR / "certs" / "russian_trusted_root_ca.pem"))  # корневой сертификат Минцифры
+    gigachat_max_parallel: int = int(_env("GIGACHAT_MAX_PARALLEL", "1"))  # у бесплатного тарифа — один запрос за раз
+    llm_provider: str = (_env("LLM_PROVIDER", "") or ("gigachat" if _env("GIGACHAT_AUTH_KEY", "") else "openai")).lower()
+
+    @property
+    def model_name(self) -> str:
+        return self.gigachat_model if self.llm_provider == "gigachat" else self.llm_model
+
     region_slug: str = _env("REGION_SLUG", "russia/baykal")
     collect_limit: int = int(_env("COLLECT_LIMIT", "60"))
     collect_catalog_pages: int = int(_env("COLLECT_CATALOG_PAGES", "100"))
@@ -51,6 +67,8 @@ class Settings:
 
     @property
     def llm_enabled(self) -> bool:
+        if self.llm_provider == "gigachat":
+            return bool(self.gigachat_auth_key)
         return bool(self.llm_api_key)
 
 

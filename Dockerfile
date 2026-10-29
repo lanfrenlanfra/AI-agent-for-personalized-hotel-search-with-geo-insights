@@ -18,6 +18,11 @@ COPY --chown=app:app app ./app
 COPY --chown=app:app web ./web
 COPY --chown=app:app scripts ./scripts
 COPY --chown=app:app data ./data
+COPY --chown=app:app certs ./certs
+# Корневой сертификат Минцифры — нужен только для GigaChat. Если его нет в certs/, скачиваем (с проверкой TLS);
+# не получилось — сборка не падает: GigaChat тогда подскажет в логе, куда положить файл.
+RUN [ -s certs/russian_trusted_root_ca.pem ] || python -c "import urllib.request as u; u.urlretrieve('https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt', 'certs/russian_trusted_root_ca.pem')" \
+    || (rm -f certs/russian_trusted_root_ca.pem; echo "сертификат Минцифры не скачан: для GigaChat положите его в certs/russian_trusted_root_ca.pem")
 RUN mkdir -p /app/runtime && chown -R app:app /app
 USER app
 EXPOSE 8080

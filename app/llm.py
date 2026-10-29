@@ -1,4 +1,4 @@
-"""Тонкий клиент любого OpenAI-совместимого API (необязательный).
+"""Тонкий клиент модели: любой OpenAI-совместимый API (Ollama, Yandex, OpenAI) или GigaChat (app/gigachat.py), необязательный.
 
 Без ключа система целиком работает на правилах. LLM используется только там, где
 правила бессильны: разбор запроса и ответа отельера, имитация отельера, шаблоны для новой
@@ -85,6 +85,14 @@ def chat(messages: list[dict], temperature: float = 0.2, timeout: int = 90) -> s
         return _replay[key]
     if not available():
         return None
+    if settings.llm_provider == "gigachat":
+        from . import gigachat
+        txt = gigachat.chat(messages, temperature, timeout)
+        if txt:
+            txt = re.sub(r"<think>.*?</think>", "", txt, flags=re.S).strip()
+            if txt:
+                _remember(key, txt)
+        return txt or None
     try:
         r = requests.post(
             f"{settings.llm_base_url}/chat/completions",
@@ -109,6 +117,9 @@ _probing = False
 
 
 def _probe() -> str:
+    if settings.llm_provider == "gigachat":
+        from . import gigachat
+        return gigachat.probe()
     try:
         r = requests.get(f"{settings.llm_base_url}/models", headers={"Authorization": f"Bearer {settings.llm_api_key}"}, timeout=2)
         if r.status_code == 200:
