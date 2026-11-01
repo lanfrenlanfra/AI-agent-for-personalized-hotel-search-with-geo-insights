@@ -31,5 +31,5 @@ jobs:
           docker compose up -d
           for i in $(seq 1 30); do curl -fs localhost:8080/health && break || sleep 3; done
           curl -fs localhost:8080/health
-          curl -fs "localhost:8080/api/search?q=тихий+номер" > /dev/null
+          curl -fs -G "localhost:8080/api/search" --data-urlencode "q=тихий номер" > /dev/null
           docker compose down -v
