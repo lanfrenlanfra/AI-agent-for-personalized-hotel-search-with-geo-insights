@@ -1,193 +1,197 @@
-# Агент Ква — подробное описание
+# Kva Agent — detailed description
 
-Краткая версия и быстрый старт — в [README](../README.md).
+**English** | [Русский](details.ru.md)
 
-## Как это выглядит для гостя
+The short version and quick start are in the [README](../README.md).
 
-Главная — одно поле: гость описывает отдых на Байкале своими словами и, если хочет, прикладывает фото-референс. Модель переводит запрос и картинку в критерии; лягушка ищет по каталогу Островка (912 отелей региона, самые подходящие дополнительно изучаются на лету), сверяет каждый факт по координатам и карте, источникам и свежести и показывает **три лучших варианта**: насколько отель подходит, что в нём хорошо, что стоит уточнить у отельера, чем проверено. Подробности («Откуда это известно») — по кнопке. «Сравнить эти отели» открывает короткую таблицу: колонки — отели с главным фото, строки — **только то, что гость просил** (текстом и на фото), в клетках одна фраза от лягушки, лучшее значение подсвечено, наверху вывод лягушки; кабинет отельера — в верхнем меню. Фото разбирает мультимодальная модель (по умолчанию `gemma3:4b`); если модель картинок не видит, лягушка честно об этом скажет и поищет по тексту.
+> The web interface is in Russian. Button labels, statuses and example queries are quoted here in English translation (with the Russian original where it matters).
 
-Разговор не обрывается: вся история (реплики гостя и ответы лягушки) видна лентой на главной и хранится в сессии браузера. Гость может уточнять: «ой, забыла, ещё с бассейном и баней» дополняет прежние пожелания (если модель жива, она же заменяет передуманное; «давай заново» начинает с нуля), и лягушка пересобирает тройку. Прежние подборки сворачиваются в короткие ссылки, а история уходит на сервер как контекст для модели (сервер ничего не хранит). Кнопка «Начать заново» очищает разговор.
+## What it looks like for a guest
 
-Если гость просто здоровается, спрашивает «кто ты», просит не про Байкал или присылает фото не про отдых (кот, скриншот, еда), лягушка отвечает по-дружески и мягко возвращает к делу: подсказывает, что описать, и предлагает примеры запросов одной кнопкой. Без LLM те же случаи закрывают шаблонные ответы.
+The home page is a single field: the guest describes a trip to Baikal in their own words and, if they want, attaches a reference photo. The model turns the request and the picture into criteria; Kva (the frog) searches the Ostrovok catalog (912 hotels in the region, the most suitable ones are additionally studied on the fly), verifies every fact by coordinates and map, sources and freshness, and shows the **three best options**: how well the hotel fits, what is good about it, what is worth asking the hotelier, and how it was verified. Details ("How we know this") are behind a button. "Compare these hotels" opens a short table: columns are hotels with a main photo, rows are **only what the guest asked for** (in text and in the photo), each cell holds one phrase from Kva, the best value is highlighted, and Kva's conclusion is at the top; the hotelier dashboard is in the top menu. Photos are analyzed by a multimodal model (`gemma3:4b` by default); if the model can't see images, Kva honestly says so and searches by text.
 
-## Быстрый старт
+The conversation doesn't break off: the whole history (the guest's messages and Kva's replies) is shown as a feed on the home page and stored in the browser session. The guest can refine: "oh, I forgot, also with a pool and a banya" adds to the earlier wishes (if the model is alive, it also replaces what the guest changed their mind about; "let's start over" starts from scratch), and Kva rebuilds the top three. Earlier selections collapse into short links, and the history is sent to the server as context for the model (the server stores nothing). The "Start over" button clears the conversation.
 
-Нужен только Docker (Compose v2.24+).
+If the guest just says hello, asks "who are you", asks about somewhere other than Baikal, or sends a photo unrelated to travel (a cat, a screenshot, food), Kva replies in a friendly way and gently returns to the point: it suggests what to describe and offers example queries as one-click buttons. Without an LLM, the same cases are covered by template replies.
 
-```bash
-docker compose up --build   # без .env и аргументов: работает на правилах, без LLM
-# необязательно: cp .env.example .env — добавит встроенную Ollama (gemma3:4b, ≈3,3 ГБ при первом старте)
-```
+## Quick start
 
-Откройте http://localhost:8080. Проверка живости: `curl localhost:8080/health` → `{"status":"ok"}` (тот же адрес в healthcheck compose).
-
-Образ собирается под `linux/amd64` (на Apple Silicon Docker запускает его через эмуляцию — в `docker-compose.yml` стоит `platform: linux/amd64`). Первый старт занимает меньше минуты: данные берутся из репозитория, ничего не скачивается. Ресурсы: без LLM хватает 1 ядра CPU и 512 МБ RAM; с профилем `llm` — 4 ядра и 8 ГБ.
-
-**Заполнение данных (seeding)** выполняется автоматически при первом старте: сервис читает `data/raw/` и считает характеристики (`app/pipeline.py`), руками ничего запускать не нужно. Тестовые доступы и маршруты — в разделе «Маршруты и тестовые доступы». Те же команды есть в `Makefile`: `make up`, `make down`, `make seed` (пересчитать данные в уже запущенном сервисе).
-
-### Данные в репозитории
-
-В `data/raw/` лежат настоящие данные, собранные с ostrovok.ru и OpenStreetMap, поэтому запуск не требует интернета и долгой загрузки:
-
-* `catalog/russia_baykal.json` — индекс всего региона «Отели у озера Байкала»: 912 отелей, у каждого цена, звёзды, оценка, расстояния, удобства, координаты;
-* `ostrovok/*.json` — 52 отеля, изученные глубоко: карточка, правила, описание, отзывы с текстом, оценки по категориям, фото;
-* `osm/tiles/` — 244 тайла OpenStreetMap (здания с высотами, дороги, берег озера, заведения), по которым считаются закат, тишина, вид и пути пешком.
-
-Остальные отели региона (860) сервис изучает сам, по запросам пользователей (см. ниже), если есть интернет.
-
-### Как выбираются отели: индекс региона и проверка «по запросу»
-
-Глубокая проверка отеля (карточка, отзывы, карта, расчёт заката, тишины и вида) — минуты на десяток отелей, а в регионе их тысячи, поэтому «первые N из каталога» — плохая выборка. Сервис работает в два этапа, как поиск по большому инвентарю:
-
-1. **Индекс региона** (дёшево): `collect` обходит страницы каталога (`COLLECT_CATALOG_PAGES`, по 20 отелей) и сохраняет для каждого отеля цену, звёзды, оценку, расстояние до метро, пляжа и центра, удобства-флаги, координаты. Стартовая глубокая выборка (`COLLECT_LIMIT`) — **разнообразная**: ячейки карты × ценовые терцили × тип размещения, внутри ячейки берутся отели с наибольшим числом отзывов.
-2. **Дозаполнение по запросу** (дорого, но только нужное): когда пользователь пишет запрос, сервис по индексу выбирает лучших ещё не проверенных кандидатов (близость метро и пляжа, цена, звёзды, удобства; закат и тишину по каталогу не узнать, они считаются после проверки), ставит их в очередь, и фоновый воркер вежливо, по одному, проверяет их. Интерфейс показывает «проверено X из Y», кандидатов с пометкой «данные каталога, не проверено» и сам обновляет выдачу. Результат кэшируется в БД, поэтому следующий похожий запрос мгновенный; лимиты: `ENRICH_BATCH` кандидатов за запрос, `ENRICH_MAX_PER_HOUR` проверок в час. Без интернета отель помечается «не удалось проверить» с причиной, поиск по уже собранному продолжает работать. Статусы очереди: `GET /api/jobs`.
-
-Пересобрать данные заново (нужен интернет, ~10–20 минут на 50 отелей):
+Only Docker is required (Compose v2.24+).
 
 ```bash
-docker compose --profile collect run --rm collect     # Островок + тайлы OpenStreetMap → ./data
-git add data && git commit -m "Данные Островка и OSM"
+docker compose up --build   # without .env or arguments: runs on rules, without an LLM
+# optional: cp .env.example .env — adds the built-in Ollama (gemma3:4b, ≈3.3 GB on first start)
 ```
 
-Без Docker: `pip install -r requirements.txt && python scripts/collect_ostrovok.py && python scripts/collect_osm.py`.
+Open http://localhost:8080. Liveness check: `curl localhost:8080/health` → `{"status":"ok"}` (the same address is used in the compose healthcheck).
 
-Если Островок отдаёт скрипту страницу антибота, есть запасной путь через обычный браузер: `scripts/browser_export.js` выгружает карточки и отзывы в `kva-bundle.json`, затем `python scripts/import_bundle.py kva-bundle.json`; тайлы OSM можно выгрузить из браузера через api.openstreetmap.org и загрузить `python scripts/import_osm_bundle.py`. Именно так собраны данные в репозитории.
+The image is built for `linux/amd64` (on Apple Silicon Docker runs it through emulation — `docker-compose.yml` has `platform: linux/amd64`). The first start takes less than a minute: data is taken from the repository, nothing is downloaded. Resources: without an LLM, 1 CPU core and 512 MB RAM are enough; with the `llm` profile — 4 cores and 8 GB.
 
-## Что умеет сервис
+**Data seeding** runs automatically on first start: the service reads `data/raw/` and computes the characteristics (`app/pipeline.py`); you don't need to run anything by hand. Test credentials and routes are in the "Routes and test credentials" section. The same commands are in the `Makefile`: `make up`, `make down`, `make seed` (recompute the data in an already running service).
 
-| Требование трека | Где это в проекте |
+### Data in the repository
+
+`data/raw/` holds real data collected from ostrovok.ru and OpenStreetMap, so launching requires neither internet nor a long download:
+
+* `catalog/russia_baykal.json` — index of the whole "Hotels near Lake Baikal" region: 912 hotels, each with price, stars, rating, distances, amenities, coordinates;
+* `ostrovok/*.json` — 52 hotels studied in depth: listing, rules, description, reviews with text, category ratings, photos;
+* `osm/tiles/` — 244 OpenStreetMap tiles (buildings with heights, roads, the lake shore, venues), from which sunset, quietness, view and walking paths are computed.
+
+The remaining hotels of the region (860) are studied by the service itself, on user requests (see below), if internet is available.
+
+### How hotels are selected: region index and "on-demand" checking
+
+A deep check of a hotel (listing, reviews, map, sunset/quietness/view calculation) takes minutes per dozen hotels, and the region has thousands, so "the first N from the catalog" is a poor sample. The service works in two stages, like search over a large inventory:
+
+1. **Region index** (cheap): `collect` walks through catalog pages (`COLLECT_CATALOG_PAGES`, 20 hotels each) and saves for each hotel the price, stars, rating, distance to the metro, beach and center, amenity flags and coordinates. The initial deep sample (`COLLECT_LIMIT`) is **diverse**: map cells × price terciles × accommodation type, with the hotels with the most reviews taken within each cell.
+2. **On-demand enrichment** (expensive, but only what's needed): when a user writes a query, the service uses the index to pick the best not-yet-checked candidates (proximity to the metro and beach, price, stars, amenities; sunset and quietness can't be learned from the catalog, they are computed after the check), puts them in a queue, and a background worker politely checks them one at a time. The interface shows "checked X of Y", marks candidates as "catalog data, not verified", and refreshes the results by itself. The result is cached in the DB, so the next similar query is instant; limits: `ENRICH_BATCH` candidates per query, `ENRICH_MAX_PER_HOUR` checks per hour. Without internet, a hotel is marked "could not be checked" with a reason, and search over what has already been collected keeps working. Queue statuses: `GET /api/jobs`.
+
+To rebuild the data from scratch (internet required, ~10–20 minutes for 50 hotels):
+
+```bash
+docker compose --profile collect run --rm collect     # Ostrovok + OpenStreetMap tiles → ./data
+git add data && git commit -m "Ostrovok and OSM data"
+```
+
+Without Docker: `pip install -r requirements.txt && python scripts/collect_ostrovok.py && python scripts/collect_osm.py`.
+
+If Ostrovok serves the script an anti-bot page, there is a fallback through a regular browser: `scripts/browser_export.js` exports listings and reviews to `kva-bundle.json`, then `python scripts/import_bundle.py kva-bundle.json`; OSM tiles can be exported from the browser via api.openstreetmap.org and loaded with `python scripts/import_osm_bundle.py`. This is exactly how the data in the repository was collected.
+
+## What the service can do
+
+| Track requirement | Where it is in the project |
 |---|---|
-| Агент собирает уникальные характеристики из открытых данных и от отельера | `app/collectors/` (карточка, отзывы, оценки, геоданные), диалог — `app/hotelier.py` |
-| Хотя бы одна характеристика считается по геоданным | закат и восход с учётом **гор (цифровая модель рельефа)** и леса, вид на горы и достопримечательности и воду, шум по 8 сторонам, пешие маршруты **с подъёмами**, ночные места, остановки, стройка, белые ночи — `app/geo/`, `app/dem.py` |
-| Характеристики из внешних открытых источников | климат зимой, качество воздуха, достопримечательности и история здания (Википедия, Викиданные), фото улицы (Викисклад), вышки связи — `app/probes/` |
-| У каждого значения источник, уверенность, дата | таблица `observations`; кнопка «Откуда это?» показывает свидетельства, цитаты и метод |
-| Конфликты выявляются и разрешаются | `app/reconcile.py`: статусы «подтверждено / вероятно / слабо / спорно / устарело», текст расхождения с обеими сторонами |
-| Диалог с отельером, свободный ответ → поля | `app/hotelier.py` + кабинет `#/hotelier`; разбор правилами, с ключом LLM — умнее; ответ «имитируется» кнопкой |
-| Расширяемость: новая характеристика по описанию | страница «Характеристики»: описание словами → черновик (LLM или ключевые слова) → применяется к отзывам всех отелей, подключается к поиску и вопросам; также запись в `app/features/registry.yaml` |
-| Поиск на естественном языке | `app/search.py`: «тихий номер с видом на закат недалеко от моря» → критерии (чипы, их можно убрать), оценка и объяснение «почему подходит / не подходит» |
-| Сравнение, кабинет отельера | `#/compare`, `#/hotelier` |
-| Перепроверка устаревшего | `app/freshness.py`; кнопки «Перепроверить», демо «рядом построили дом → закат пропал» |
-| Метрики качества и размеченная выборка | страница «Качество и свежесть», `app/metrics.py` |
+| The agent collects unique characteristics from open data and from the hotelier | `app/collectors/` (listing, reviews, ratings, geodata), dialog — `app/hotelier.py` |
+| At least one characteristic is computed from geodata | sunset and sunrise accounting for **mountains (digital elevation model)** and forest, view of mountains, landmarks and water, noise on 8 sides, walking routes **with climbs**, nightlife, bus stops, construction, white nights — `app/geo/`, `app/dem.py` |
+| Characteristics from external open sources | winter climate, air quality, landmarks and the history of the building (Wikipedia, Wikidata), street photos (Wikimedia Commons), cell towers — `app/probes/` |
+| Every value has a source, confidence, date | the `observations` table; the "Where is this from?" button shows evidence, quotes and method |
+| Conflicts are detected and resolved | `app/reconcile.py`: statuses "confirmed / likely / weak / disputed / outdated", a discrepancy text showing both sides |
+| Dialog with the hotelier, free-text answer → fields | `app/hotelier.py` + the `#/hotelier` dashboard; parsing by rules, smarter with an LLM key; the answer can be "simulated" with a button |
+| Extensibility: a new characteristic from a description | the "Characteristics" page: a description in words → a draft (LLM or keywords) → applied to the reviews of all hotels, wired into search and questions; also an entry in `app/features/registry.yaml` |
+| Natural-language search | `app/search.py`: "a quiet room with a sunset view not far from the sea" → criteria (chips that can be removed), a score and a "why it fits / doesn't fit" explanation |
+| Comparison, hotelier dashboard | `#/compare`, `#/hotelier` |
+| Re-checking outdated data | `app/freshness.py`; "Re-check" buttons, the demo "a house was built nearby → the sunset is gone" |
+| Quality metrics and a labeled sample | the "Quality and freshness" page, `app/metrics.py` |
 
-## Скрытые характеристики: откуда, насколько надёжно, как проверить, когда устареет
+## Hidden characteristics: where from, how reliable, how to verify, when they expire
 
-Для каждой характеристики хранится не только значение, но и ответы на четыре вопроса: **источник**, **уверенность**, **как проверить самому**, **срок годности**. В интерфейсе это блок «Откуда мы это знаем» (кнопка «Откуда это?»), в реестре — поля `ttl_days`, `verify`, `limits`. Догадка языковой модели источником не считается: LLM в расчёте этих значений не участвует.
+For every characteristic we store not only the value but also the answers to four questions: **source**, **confidence**, **how to verify it yourself**, **expiry**. In the interface this is the "How we know this" block (the "Where is this from?" button); in the registry — the fields `ttl_days`, `verify`, `limits`. A language-model guess is not counted as a source: the LLM does not take part in computing these values.
 
-| Характеристика | Источник и метод | Потолок уверенности | Как проверить | Срок |
+| Characteristic | Source and method | Confidence ceiling | How to verify | Expiry |
 |---|---|---|---|---|
-| Закат / восход из окна | здания и лес OSM + горизонт по рельефу (Terrarium), солнце на 15-е число каждого месяца | 0,85; без рельефа ×0,85 и пометка «рельеф не учтён» | силуэт и путь солнца в карточке; фото из окон в отзывах | 365 дн. |
-| Вид на горы | угол горизонта по рельефу > 2° над застройкой и лесом, названные вершины из OSM (с учётом кривизны Земли и рефракции) | 0,7 | фото из номеров; карта рельефа | 730 дн. |
-| Солнце зимой (без облаков) | горизонт по рельефу, декабрь–февраль | 0,7 | сравнить с климатической справкой | 730 дн. |
-| Вид на достопримечательность, воду | OSM + рельеф, минимальный этаж | по покрытию высот зданий | фото, карта-панорама | 365 дн. |
-| Шум | OSM: дороги, бары, ж/д, стройки | модель, а не децибелы | отзывы, визит вечером | 180 дн. |
-| Пешком до метро/воды/остановки | граф улиц OSM + функция Тоблера (подъёмы замедляют) | 0,6 по графу, 0,4 по прямой | навигатор | 365 дн. |
-| Температура и солнце зимой (климат) | реанализ ERA5-Land через Open-Meteo, норма за 2015–2024, сетка ≈9 км | 0,72 / 0,55 | Open-Meteo Historical Weather по координатам | 730 дн. |
-| Качество воздуха (PM2.5) | модель CAMS через Open-Meteo, шаг ≈45 км, 12 месяцев | 0,45 | IQAir / OpenAQ рядом | 180 дн. |
-| Достопримечательности, история здания | Википедия (geosearch) и Викиданные; статья о здании — только при совпадении названия и расстояния ≤ 200 м | 0,65–0,7 | ссылки на статьи | 365–730 дн. |
-| Фото улицы | Викисклад, файлы с геометкой в 150 м, автор и лицензия показываются | 0,5 | ссылки на файлы | 365 дн. |
-| Мобильная связь | вышки OSM в 10 км (+ OpenCellID с ключом) | 0,4 (0,6 с OpenCellID) | карты покрытия операторов | 365 дн. |
+| Sunset / sunrise from the window | OSM buildings and forest + terrain horizon (Terrarium), sun on the 15th of each month | 0.85; without terrain ×0.85 and a "terrain not accounted for" note | silhouette and sun path in the card; photos from windows in reviews | 365 days |
+| Mountain view | terrain horizon angle > 2° above buildings and forest, named OSM peaks (accounting for Earth's curvature and refraction) | 0.7 | photos from rooms; terrain map | 730 days |
+| Winter sun (cloudless) | terrain horizon, December–February | 0.7 | compare with the climate reference | 730 days |
+| View of a landmark, water | OSM + terrain, minimum floor | by building-height coverage | photos, panorama map | 365 days |
+| Noise | OSM: roads, bars, railways, construction sites | a model, not decibels | reviews, an evening visit | 180 days |
+| Walking to the metro/water/bus stop | OSM street graph + Tobler's function (climbs slow you down) | 0.6 by graph, 0.4 by straight line | a navigator | 365 days |
+| Temperature and winter sun (climate) | ERA5-Land reanalysis via Open-Meteo, 2015–2024 normal, ≈9 km grid | 0.72 / 0.55 | Open-Meteo Historical Weather by coordinates | 730 days |
+| Air quality (PM2.5) | CAMS model via Open-Meteo, ≈45 km step, 12 months | 0.45 | IQAir / OpenAQ nearby | 180 days |
+| Landmarks, history of the building | Wikipedia (geosearch) and Wikidata; an article about the building only if the name matches and the distance is ≤ 200 m | 0.65–0.7 | links to articles | 365–730 days |
+| Street photo | Wikimedia Commons, geotagged files within 150 m, author and license are shown | 0.5 | links to files | 365 days |
+| Mobile coverage | OSM towers within 10 km (+ OpenCellID with a key) | 0.4 (0.6 with OpenCellID) | operator coverage maps | 365 days |
 
-Правила честности, которые зашиты в код:
+Honesty rules built into the code:
 
-* Нет данных — нет значения. Проба внешнего источника возвращает статус `ok / cached / no_data / offline / error`, а не выдуманное число; статусы видны в карточке отеля («Внешние источники»).
-* «Не нашли» не превращается в «нет»: «вышек в OSM нет» и «статьи о здании нет» оформляются как слабые наблюдения со словами «это не значит, что…».
-* Модельные и расчётные источники (`osm_geo`, `dem_geo`, Open-Meteo, вышки OSM) без независимого подтверждения максимум «вероятно».
-* Если сеть недоступна, используется сохранённый ответ с указанием возраста (`stale_cache`); ключи API не попадают в кэш и в ссылки.
-* Расхождение ячейки климатической сетки и высоты отеля по рельефу больше 150 м снижает уверенность температуры.
+* No data — no value. A probe of an external source returns a status `ok / cached / no_data / offline / error`, not an invented number; statuses are visible in the hotel card ("External sources").
+* "Not found" does not turn into "no": "no towers in OSM" and "no article about the building" are recorded as weak observations with the words "this doesn't mean that…".
+* Model-based and computed sources (`osm_geo`, `dem_geo`, Open-Meteo, OSM towers) without independent confirmation reach "likely" at most.
+* If the network is unavailable, a saved response is used with its age indicated (`stale_cache`); API keys do not end up in the cache or in links.
+* A discrepancy of more than 150 m between the climate grid cell's elevation and the hotel's elevation by terrain lowers the temperature confidence.
 
-### Дополнительные данные: как собрать
+### Additional data: how to collect
 
-Проект работает офлайн по тому, что лежит в `data/`. Рельеф, лес, остановки, вышки и ответы внешних источников собираются отдельно (нужен интернет, ключей не нужно):
+The project works offline on what is in `data/`. Terrain, forest, bus stops, towers and external-source responses are collected separately (internet required, no keys needed):
 
 ```bash
-docker compose --profile collect run --rm check-sources   # 1 минута: отвечают ли все источники так, как ждёт код (запустите первым)
-docker compose --profile collect run --rm collect-extra   # рельеф → data/raw/dem, лес/вышки/вершины → data/raw/osm_extra, ответы API → data/raw/ext
+docker compose --profile collect run --rm check-sources   # 1 minute: do all sources respond the way the code expects (run this first)
+docker compose --profile collect run --rm collect-extra   # terrain → data/raw/dem, forest/towers/peaks → data/raw/osm_extra, API responses → data/raw/ext
 ```
 
-Без Docker: `python scripts/check_sources.py`, `python scripts/collect_extra.py` (`--only dem --limit 5` — проба на пяти отелях).
+Without Docker: `python scripts/check_sources.py`, `python scripts/collect_extra.py` (`--only dem --limit 5` — a trial run on five hotels).
 
-Собранное можно закоммитить: с ним `docker compose up` работает без сети. Проверка «по запросу» (`enrich`) и кнопка «Опросить источники сейчас» докачивают то же самое для одного отеля. Без собранного рельефа сервис не падает: закат и горы считаются по плоской местности и помечаются как таковые.
+What is collected can be committed: with it, `docker compose up` works without a network. The on-demand check (`enrich`) and the "Query sources now" button download the same things for a single hotel. Without collected terrain the service doesn't crash: sunset and mountains are computed for flat ground and marked as such.
 
-Подробнее — [architecture.md](architecture.md) (как считается достоверность и геомодели) и [research.md](research.md) (как это делают Booking.com, Airbnb и что говорит наука).
+More details: [architecture.md](architecture.md) (how reliability and geo models are computed) and [research.md](research.md) (how Booking.com and Airbnb do it and what the research says).
 
-## Маршруты и тестовые доступы
+## Routes and test credentials
 
-Интерфейс (hash-маршруты): `#/` главная с лягушкой (запрос + фото → топ‑3) · `#/search` подробный поиск с картой · `#/hotel/<id>` карточка · `#/compare?ids=a,b` сравнение · `#/hotelier` кабинет отельера.
+Interface (hash routes): `#/` home page with the frog (query + photo → top 3) · `#/search` detailed search with a map · `#/hotel/<id>` hotel card · `#/compare?ids=a,b` comparison · `#/hotelier` hotelier dashboard.
 
-**Кабинет отельера:** логин `hotelier`, пароль `hotelier123` (меняются в `.env`: `HOTELIER_LOGIN`, `HOTELIER_PASSWORD`). Остальное открыто без входа; ответы «за отельера» без входа помечаются как имитация и весят меньше.
+**Hotelier dashboard:** login `hotelier`, password `hotelier123` (changeable in `.env`: `HOTELIER_LOGIN`, `HOTELIER_PASSWORD`). Everything else is open without logging in; answers "on behalf of the hotelier" given without logging in are marked as simulated and weigh less.
 
-API (JSON): `GET /health`, `/api/meta`, `/api/hotels`, `/api/hotels/{id}`, `/api/hotels/{id}/facts/{feature}?scope=`, `/api/hotels/{id}/horizon?az=&floor=&month=`, `/api/search?q=`, `POST /api/frog/ask` (запрос + фото → топ‑3), `POST /api/frog/say`, `/api/compare?ids=`, `/api/features` (+ `POST`, `POST /suggest`, `DELETE`), `/api/questions`, `POST /api/questions/{id}/answer|simulate`, `POST /api/hotelier/login|confirm`, `/api/freshness`, `POST /api/hotels/{id}/refresh`, `/api/metrics`, `/api/eval/candidates`, `POST /api/eval/labels`.
+API (JSON): `GET /health`, `/api/meta`, `/api/hotels`, `/api/hotels/{id}`, `/api/hotels/{id}/facts/{feature}?scope=`, `/api/hotels/{id}/horizon?az=&floor=&month=`, `/api/search?q=`, `POST /api/frog/ask` (query + photo → top 3), `POST /api/frog/say`, `/api/compare?ids=`, `/api/features` (+ `POST`, `POST /suggest`, `DELETE`), `/api/questions`, `POST /api/questions/{id}/answer|simulate`, `POST /api/hotelier/login|confirm`, `/api/freshness`, `POST /api/hotels/{id}/refresh`, `/api/metrics`, `/api/eval/candidates`, `POST /api/eval/labels`.
 
-## Переменные окружения (`.env.example`)
+## Environment variables (`.env.example`)
 
-| Переменная | По умолчанию | Назначение |
+| Variable | Default | Purpose |
 |---|---|---|
-| `APP_PORT` | `8080` | порт внутри контейнера (наружу всегда 8080:8080) |
-| `COMPOSE_PROFILES`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_PROJECT` | `llm`, `http://ollama:11434/v1`, `ollama`, `gemma3:4b` | LLM из коробки (встроенная Ollama); можно заменить любым OpenAI-совместимым API или отключить — тогда правила. Готовые примеры (Ollama, Yandex AI Studio) — в `.env.example`; проверка: `docker compose exec app python scripts/check_llm.py` |
-| `REGION_SLUG` | `russia/baykal` | регион каталога Островка для сбора |
-| `COLLECT_LIMIT`, `COLLECT_DELAY` | `60`, `1.5` | размер стартовой глубокой выборки и пауза между запросами (сек) |
-| `COLLECT_CATALOG_PAGES` | `100` | сколько страниц каталога обойти для индекса региона (по 20 отелей) |
-| `ENRICH_ON_DEMAND`, `ENRICH_BATCH`, `ENRICH_MAX_PER_HOUR` | `true`, `8`, `120` | фоновая проверка кандидатов под запрос: включена ли, сколько ставить в очередь за запрос, часовой лимит |
-| `HOTELIER_LOGIN`, `HOTELIER_PASSWORD` | `hotelier`, `hotelier123` | вход в кабинет |
-| `DEM_ENABLED`, `DEM_FETCH` | `true`, `true` | использовать цифровую модель рельефа; докачивать недостающие плитки при онлайн-проверке |
-| `PROBES_ONLINE`, `PROBE_TIMEOUT` | `true`, `8` | ходить ли во внешние источники при онлайн-проверке отеля; таймаут одного запроса, с |
-| `OPENCELLID_KEY` | пусто | необязательно: ключ OpenCellID для оценки сотовой связи |
-| `FOREST_HEIGHT_M` | `14` | типовая высота леса при расчёте видимости |
-| `REFRESH_ENABLED`, `REFRESH_INTERVAL_MIN`, `REFRESH_ONLINE` | `false`, `60`, `false` | фоновая перепроверка устаревшего (онлайн — с перекачкой) |
+| `APP_PORT` | `8080` | port inside the container (outside it is always 8080:8080) |
+| `COMPOSE_PROFILES`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_PROJECT` | `llm`, `http://ollama:11434/v1`, `ollama`, `gemma3:4b` | LLM out of the box (built-in Ollama); can be replaced with any OpenAI-compatible API or turned off — then rules are used. Ready-made examples (Ollama, Yandex AI Studio) are in `.env.example`; check: `docker compose exec app python scripts/check_llm.py` |
+| `REGION_SLUG` | `russia/baykal` | Ostrovok catalog region to collect |
+| `COLLECT_LIMIT`, `COLLECT_DELAY` | `60`, `1.5` | size of the initial deep sample and the pause between requests (sec) |
+| `COLLECT_CATALOG_PAGES` | `100` | how many catalog pages to walk for the region index (20 hotels each) |
+| `ENRICH_ON_DEMAND`, `ENRICH_BATCH`, `ENRICH_MAX_PER_HOUR` | `true`, `8`, `120` | background checking of candidates for a query: whether it is enabled, how many to queue per query, hourly limit |
+| `HOTELIER_LOGIN`, `HOTELIER_PASSWORD` | `hotelier`, `hotelier123` | dashboard login |
+| `DEM_ENABLED`, `DEM_FETCH` | `true`, `true` | use the digital elevation model; download missing tiles during an online check |
+| `PROBES_ONLINE`, `PROBE_TIMEOUT` | `true`, `8` | whether to query external sources during an online hotel check; timeout of a single request, s |
+| `OPENCELLID_KEY` | empty | optional: OpenCellID key for estimating mobile coverage |
+| `FOREST_HEIGHT_M` | `14` | typical forest height when computing visibility |
+| `REFRESH_ENABLED`, `REFRESH_INTERVAL_MIN`, `REFRESH_ONLINE` | `false`, `60`, `false` | background re-checking of outdated data (online — with re-downloading) |
 
-Секреты читаются только из окружения/`.env` (в git не попадает). Большие модели не нужны и не лежат в репозитории; при желании подключается внешний API.
+Secrets are read only from the environment/`.env` (which doesn't go into git). Large models are not needed and are not in the repository; an external API can be connected if desired.
 
-## LLM: что он делает и откуда берётся
+## LLM: what it does and where it comes from
 
-Характеристики считаются по геоданным и отзывам, а не «угадываются моделью». LLM понимает свободный текст: разбирает запрос гостя, раскладывает ответ отельера по полям, имитирует отельера, пишет черновик новой характеристики.
+Characteristics are computed from geodata and reviews, not "guessed by the model". The LLM understands free text: it parses the guest's query, sorts the hotelier's answer into fields, simulates the hotelier, and writes a draft of a new characteristic.
 
-**Из коробки.** `.env.example` включает профиль `llm`: вместе с сервисом поднимается Ollama (`ollama/ollama`, версия зафиксирована) и сама скачивает небольшую открытую модель `gemma3:4b` (≈3,3 ГБ, понимает и картинки, один раз; модели в git нет). Приложение не ждёт загрузки: пока она идёт, работают правила и записанные ответы модели для примеров из интерфейса (`data/llm_cache.json`), потом подключается живая модель. В подвале страницы виден статус («LLM загружается» → «LLM: модель»). Рекомендуем 4 ядра CPU и 8 ГБ памяти для Docker; на CPU разбор нового запроса занимает 10–30 секунд, повторный и примеры из интерфейса — мгновенно.
+**Out of the box.** `.env.example` enables the `llm` profile: together with the service, Ollama is started (`ollama/ollama`, version pinned) and downloads a small open model `gemma3:4b` by itself (≈3.3 GB, understands images too, once; the model is not in git). The application doesn't wait for the download: while it is in progress, rules and recorded model answers for the example queries from the interface (`data/llm_cache.json`) work, and then the live model is connected. The page footer shows the status ("LLM is loading" → "LLM: model"). We recommend 4 CPU cores and 8 GB of memory for Docker; on CPU, parsing a new query takes 10–30 seconds, while a repeated one and the examples from the interface are instant.
 
-**Свой API.** Уберите `COMPOSE_PROFILES=llm` и впишите `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` любого OpenAI-совместимого сервиса (примеры: Ollama на вашем компьютере, Yandex AI Studio — в `.env.example`). Ключи хранятся только в `.env`, он не попадает в git. Проверка: `docker compose exec app python scripts/check_llm.py`.
+**Your own API.** Remove `COMPOSE_PROFILES=llm` and fill in `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` of any OpenAI-compatible service (examples: Ollama on your computer, Yandex AI Studio — in `.env.example`). Keys are stored only in `.env`, which doesn't go into git. Check: `docker compose exec app python scripts/check_llm.py`.
 
-**Без LLM.** `COMPOSE_PROFILES=` и `LLM_API_KEY=` пустые: всё работает на правилах, на примерах — на записанных ответах. Обновить записанные ответы: `docker compose exec app python scripts/record_llm.py`, затем `docker compose cp app:/app/runtime/llm_cache.json data/llm_cache.json`.
+**Without an LLM.** With `COMPOSE_PROFILES=` and `LLM_API_KEY=` empty, everything works on rules, and the examples on recorded answers. To update the recorded answers: `docker compose exec app python scripts/record_llm.py`, then `docker compose cp app:/app/runtime/llm_cache.json data/llm_cache.json`.
 
-## Как устроено доверие к данным
+## How trust in the data works
 
-* Любое значение — **наблюдение**: характеристика, область (отель, «окна на запад», «во двор»…), значение, источник, уверенность, дата свидетельства, цитата, метод.
-* Вес = уверенность × свежесть. Свежесть падает с возрастом относительно срока жизни характеристики (тишина — 180 дней, лифт — 365).
-* Независимые источники усиливают друг друга; противоречие с заметным весом даёт «спорно» и показывается пользователю с датами и цитатами.
-* Слово отельера весомо, но карта сверяется: если расчёт по OSM не допускает того, что он говорит, факт остаётся «спорно».
-* Расчёт только по карте и рельефу, а также модельные источники (реанализ погоды, модель воздуха) без независимого подтверждения не получают «подтверждено»; имитация отельера — тоже.
+* Any value is an **observation**: characteristic, scope (hotel, "west-facing windows", "courtyard side"…), value, source, confidence, evidence date, quote, method.
+* Weight = confidence × freshness. Freshness falls with age relative to the characteristic's lifetime (quietness — 180 days, elevator — 365).
+* Independent sources reinforce each other; a contradiction with noticeable weight produces "disputed" and is shown to the user with dates and quotes.
+* The hotelier's word carries weight, but the map is checked against it: if the OSM calculation doesn't allow what they say, the fact remains "disputed".
+* Calculations based only on the map and terrain, as well as model-based sources (weather reanalysis, air model) without independent confirmation, do not get "confirmed"; neither does a simulated hotelier.
 
-Пример из реальных данных: в карточке отеля стойка регистрации работает 10:00–22:00, а свежие отзывы говорят «стойка работает круглосуточно» — Лупа показывает оба свидетельства с датами и задаёт отельеру вопрос.
+An example from real data: in the hotel's listing the front desk works 10:00–22:00, while fresh reviews say "the front desk is open around the clock" — the magnifier shows both pieces of evidence with dates and asks the hotelier a question.
 
-## Ограничения (честно)
+## Limitations (honestly)
 
-* Данные в репозитории собраны через обычный браузер (каталог и карточки Островка, тайлы OSM через api.openstreetmap.org). Прямой сбор скриптом `collect` из контейнера не прогонялся от начала до конца в среде разработки: если Островок отдаст антибот, действует запасной путь через браузер (выше). Парсеры проверены на реальных страницах и тестами.
-* **Рельеф**: модель Terrarium (SRTM и др.) даёт общий силуэт с шагом 12 / 47 / 190 м по трём слоям (до 1,8 / 9 / 75 км), а не отдельные скалы; на высоких широтах и у воды возможны артефакты — высота отеля берётся как медиана вокруг, значения у воды обрезаются. Горизонт считается по алгоритму r.horizon с кривизной Земли и рефракцией, но облачность и дымка не учитываются.
-* **Лес** — многоугольники OSM без «дырок» (поляны и посёлки внутри леса часто не вырезаны), высота деревьев типовая (`FOREST_HEIGHT_M`). Это может занижать вид там, где OSM показывает лес на месте застройки.
-* Модель видимости 2.5D: высоты зданий берутся из OSM, где они заполнены не везде (иначе типовые 18 м); доля явных высот снижает уверенность. Геозначения без независимого подтверждения помечаются максимум «вероятно».
-* **Внешние источники в разработке были проверены на записанных ответах, а не вживую**: из среды разработки не было доступа к Open-Meteo, Википедии, Викискладу, AWS и Overpass. Адреса и поля сверены с документацией (окна дат Air Quality, 0,4° ≈ 45 км у CAMS — по документации Open-Meteo; `sunshine_duration` в архивном API — по описанию третьей стороны), но первый живой прогон — ваш: `python scripts/check_sources.py` покажет, что именно не сошлось. Ключ OpenCellID и его формат ответа не проверялись вовсе.
-* Климат — это норма за 10 лет по реанализу (≈9 км), а не прогноз и не измерения станции; качество воздуха — модель ≈45 км, не датчик: дым печей на отдельной улице она не видит. Вышки OSM нанесены неполно: по ним нельзя обещать «связь есть».
-* Ночные заведения, парковки, стройки — по тегам OSM, которые обновляются с задержкой.
-* Анализ отзывов — правила и словари; на новых характеристиках, описанных словами, качество ниже, чем на встроенных.
-* Размеченной выборки нет: мы её не придумываем. Метрики точности появятся после разметки (вкладка «Качество и свежесть»).
-* Фото гостя разбирается двумя способами. Если это снимок отеля из базы (с сайта, скриншот, пересохранённый файл), лягушка узнаёт его по перцептивным хешам фотографий отелей (`app/identify.py`, индекс досчитывается в фоне в `runtime/photo_index.json`) и ставит этот отель первым. Иначе мультимодальная модель переводит фото в пожелания. Анализ фото гостей в отзывах (источник `photo_vision`) — следующий шаг.
-* Отель можно назвать: «Маяк», «гостевой дом Уютная лиса с баней» — поиск по названию учитывает падежи и опечатки; тип жилья (квартира, коттедж, гостевой дом…) и посёлок («в Листвянке», «на Ольхоне», `app/places.py`) работают как условия поиска.
+* The data in the repository was collected through a regular browser (the Ostrovok catalog and listings, OSM tiles via api.openstreetmap.org). Direct collection with the `collect` script from a container was not run end to end in the development environment: if Ostrovok serves an anti-bot page, the fallback through the browser applies (above). The parsers were checked on real pages and with tests.
+* **Terrain**: the Terrarium model (SRTM and others) gives a general silhouette with a step of 12 / 47 / 190 m across three layers (up to 1.8 / 9 / 75 km), not individual cliffs; artifacts are possible at high latitudes and near water — the hotel's elevation is taken as the median of the surrounding area, and values near water are clipped. The horizon is computed with the r.horizon algorithm with Earth's curvature and refraction, but cloud cover and haze are not taken into account.
+* **Forest** — OSM polygons without "holes" (clearings and settlements inside a forest are often not cut out), tree height is typical (`FOREST_HEIGHT_M`). This may understate the view where OSM shows forest in place of buildings.
+* The visibility model is 2.5D: building heights come from OSM, where they aren't filled in everywhere (otherwise the typical 18 m is used); the share of explicit heights lowers confidence. Geo values without independent confirmation are marked "likely" at most.
+* **External sources were checked in development on recorded responses, not live**: the development environment had no access to Open-Meteo, Wikipedia, Wikimedia Commons, AWS and Overpass. Addresses and fields were checked against documentation (Air Quality date windows, 0.4° ≈ 45 km for CAMS — per the Open-Meteo documentation; `sunshine_duration` in the archive API — per a third-party description), but the first live run is yours: `python scripts/check_sources.py` will show exactly what doesn't match. The OpenCellID key and its response format were not verified at all.
+* Climate is a 10-year normal from a reanalysis (≈9 km), not a forecast and not weather-station measurements; air quality is a ≈45 km model, not a sensor: it doesn't see stove smoke on a particular street. OSM towers are mapped incompletely: they can't be used to promise "there is coverage".
+* Nightlife, parking and construction sites come from OSM tags, which are updated with a delay.
+* Review analysis uses rules and dictionaries; for new characteristics described in words, quality is lower than for the built-in ones.
+* There is no labeled sample: we don't make one up. Accuracy metrics will appear after labeling (the "Quality and freshness" tab).
+* A guest's photo is analyzed in two ways. If it is a picture of a hotel from the database (from the website, a screenshot, a re-saved file), Kva recognizes it by the perceptual hashes of hotel photos (`app/identify.py`, the index is computed in the background into `runtime/photo_index.json`) and puts that hotel first. Otherwise the multimodal model turns the photo into wishes. Analysis of guests' photos in reviews (source `photo_vision`) is the next step.
+* A hotel can be called by name: "Mayak", "Cozy Fox guesthouse with a banya" (Russian: «Маяк», «гостевой дом Уютная лиса с баней») — search by name handles grammatical cases and typos; accommodation type (apartment, cottage, guesthouse…) and settlement ("in Listvyanka", "on Olkhon", `app/places.py`) work as search conditions.
 
-## Тесты
+## Tests
 
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-123 теста: геомодели (азимут солнца, закат, препятствия, шум, пешие маршруты), **рельеф** (кодирование плиток, угол горизонта на синтетическом хребте, кривизна Земли, потеря света на закате, вершины, подъёмы пешком, лес), **внешние источники на записанных ответах** (кэш, статусы, офлайн, ключи не попадают в кэш), достоверность, разбор Островка и отзывов, разбор ответа отельера, ответы лягушки (топ‑3, сравнение, болтовня, чужие фото), сквозной конвейер на синтетическом мире и API.
+123 tests: geo models (sun azimuth, sunset, obstructions, noise, walking routes), **terrain** (tile encoding, horizon angle on a synthetic ridge, Earth's curvature, light lost at sunset, peaks, climbs on foot, forest), **external sources on recorded responses** (cache, statuses, offline, keys don't end up in the cache), reliability, parsing of Ostrovok and reviews, parsing of the hotelier's answer, Kva's replies (top 3, comparison, small talk, unrelated photos), the end-to-end pipeline on a synthetic world, and the API.
 
-## Структура
+## Structure
 
 ```
-app/            сервис: main (Starlette), pipeline, collectors/, geo/ (+terrain), dem, osmextra, probes/, extcache, reconcile, search, hotelier, freshness, metrics
-app/features/   registry.yaml — характеристики и шаблоны; landmarks.yaml — достопримечательности
-web/            интерфейс без сборки (HTML/CSS/JS), Leaflet с CDN
-scripts/        collect_ostrovok.py, collect_osm.py, collect_extra.py (рельеф, лес, вышки, внешние API), check_sources.py (живая проверка источников), browser_export.js, import_*.py
-data/raw/       собранные данные Островка, тайлы OSM, рельеф (dem/), доп. данные OSM (osm_extra/) и кэш внешних API (ext/)
-data/eval/      labels.json — ручная разметка для метрик точности
-docs/           architecture.md, research.md
+app/            service: main (Starlette), pipeline, collectors/, geo/ (+terrain), dem, osmextra, probes/, extcache, reconcile, search, hotelier, freshness, metrics
+app/features/   registry.yaml — characteristics and templates; landmarks.yaml — landmarks
+web/            build-free interface (HTML/CSS/JS), Leaflet from a CDN
+scripts/        collect_ostrovok.py, collect_osm.py, collect_extra.py (terrain, forest, towers, external APIs), check_sources.py (live source check), browser_export.js, import_*.py
+data/raw/       collected Ostrovok data, OSM tiles, terrain (dem/), extra OSM data (osm_extra/) and the external API cache (ext/)
+data/eval/      labels.json — manual labeling for accuracy metrics
+docs/           details.md, architecture.md, research.md (Russian versions: *.ru.md)
 ```

@@ -1,52 +1,54 @@
-# Как с этим работают другие и что мы взяли
+# How others do it and what we took
 
-Короткий обзор открытых источников (ссылки внизу). Что в них **прямо сказано**, а что — наш вывод, разделено.
+**English** | [Русский](research.ru.md)
 
-## Крупные площадки
+A short overview of public sources (links at the bottom). What they **state directly** and what is our own inference are kept separate.
 
-| Кто | Что делает (по открытым источникам) | Что взяли мы |
+## Major platforms
+
+| Who | What it does (per public sources) | What we took |
 |---|---|---|
-| **Booking.com** | «Smart Filter»: гость описывает идеальный объект своими словами («отели в Амстердаме с хорошим залом, баром на крыше и видом на канал из номера»), генеративная модель подбирает фильтры. «Property Q&A»: ответы на вопросы о конкретном объекте («есть ли зарядка для электромобиля», «пускают ли с крупной собакой») строятся по описанию, отзывам и фотографиям. Резюме отзывов — в тестировании (анонс 30.10.2024). | Запрос на естественном языке → критерии («чипы»), которые гость видит и может убрать. Ответ строится по нескольким источникам сразу — но у нас каждый ответ ещё и показывает, **откуда он** и **насколько свежий**. |
-| **Airbnb** | LAEP (Listing Attribute Extraction Platform): из свободного текста хоста извлекаются удобства, услуги, особенности локации — NER, сопоставление фразы со стандартным атрибутом по косинусной близости эмбеддингов, затем классификатор «да / неизвестно / нет» с оценкой уверенности и порогом. Отдельно компьютерное зрение по фото: тип комнаты, эстетика, эмбеддинги (в статье про фото нет заявления, что фото проверяют заявленное). | Тот же тернарный взгляд: «да / нет / неизвестно» — отсутствие данных ≠ «нет». Уверенность хранится с каждым значением. |
-| **Agoda** | Май 2026: фото отеля показываются рядом с отзывами по темам. «Тематический подход» связывает и фото, и отзывы с общими атрибутами (завтрак, бассейн, расположение), на тему — до 15 фото, цитаты на языке гостя и доли позитива/негатива; заявлено 700 млн изображений и 40+ языков, «AI-powered multimodal content system». Это пресс-релиз компании, независимой оценки точности нет. | Идея «одно и то же утверждение подтверждают текст и картинка»: у нас так же независимые источники усиливают друг друга, а ссылки на фото и статьи показываются в «Откуда мы это знаем». |
-| **Shadowmap** (инструмент теней и солнца) | По собственной странице: здания — Overture (по умолчанию) или OSM/Google 3D, рельеф — Nextzen (по умолчанию) и другие модели, растительность — OSM, солнечная аналитика — по данным за 20 лет. Страница не приводит точности данных о зданиях, а при неполных данных предлагает править высоты и деревья вручную. | Тот же набор слоёв (рельеф + здания + растительность) для «где солнце»; но, в отличие от инструмента, **уверенность у нас зависит от качества слоёв** (доля явных высот, наличие рельефа), и это написано в результате. |
-| **Expedia Group** | Генеративные сводки отзывов и помощник в приложении (по пресс-материалам). Подробностей про извлечение атрибутов открыто нет. | — |
+| **Booking.com** | "Smart Filter": the guest describes the ideal property in their own words ("hotels in Amsterdam with a good gym, a rooftop bar and a canal view from the room"), and a generative model picks the filters. "Property Q&A": answers to questions about a specific property ("is there an EV charger", "are large dogs allowed") are built from the description, reviews and photos. Review summaries are in testing (announced Oct 30, 2024). | A natural-language request → criteria ("chips") that the guest sees and can remove. The answer is built from several sources at once — but in our case every answer also shows **where it comes from** and **how fresh it is**. |
+| **Airbnb** | LAEP (Listing Attribute Extraction Platform): amenities, services and location features are extracted from the host's free text — NER, matching a phrase to a standard attribute by cosine similarity of embeddings, then a "yes / unknown / no" classifier with a confidence score and a threshold. Separately, computer vision on photos: room type, aesthetics, embeddings (the photo article does not claim that photos are used to verify what is declared). | The same ternary view: "yes / no / unknown" — absence of data ≠ "no". Confidence is stored with every value. |
+| **Agoda** | May 2026: hotel photos are shown next to reviews by topic. The "thematic approach" links both photos and reviews to shared attributes (breakfast, pool, location); up to 15 photos per topic, quotes in the guest's language and shares of positive/negative; the company claims 700 million images and 40+ languages, an "AI-powered multimodal content system". This is a company press release; there is no independent accuracy assessment. | The idea that "the same claim is confirmed by both text and picture": for us, independent sources likewise reinforce each other, and links to photos and articles are shown in "How we know this". |
+| **Shadowmap** (shadow and sun tool) | According to its own page: buildings — Overture (default) or OSM/Google 3D, terrain — Nextzen (default) and other models, vegetation — OSM, solar analytics — based on 20 years of data. The page gives no accuracy figures for building data and, when data is incomplete, suggests editing heights and trees manually. | The same set of layers (terrain + buildings + vegetation) for "where is the sun"; but, unlike the tool, **our confidence depends on layer quality** (share of explicit heights, presence of terrain), and this is stated in the result. |
+| **Expedia Group** | Generative review summaries and an in-app assistant (per press materials). Nothing is public about how attributes are extracted. | — |
 
-**Чего мы не нашли в открытых источниках:** ни у одной из площадок не описаны (а) вычисление «вид из окна / закат / шум по стороне здания» по геоданным, (б) явная проверка устаревания заявленного отелем против свежих отзывов с показом конфликта пользователю, (в) диалог с отелем с разбором свободного ответа в поля. Это и есть место нашего решения; утверждать, что у других этого нет внутри, мы не можем — только что в открытом виде оно не описано.
+**What we did not find in public sources:** none of the platforms describes (a) computing "window view / sunset / noise by building side" from geodata, (b) an explicit check of whether the hotel's claims are outdated against fresh reviews, with the conflict shown to the user, or (c) a dialog with the hotel with a free-text answer parsed into fields. This is where our solution sits; we cannot claim that others don't have this internally — only that it isn't publicly described.
 
-## Исследования, на которые опирается дизайн
+## Research the design relies on
 
-* **Knowledge-Based Trust** (Dong и др., Google, 2015). Доверие к источнику оценивается по доле верных фактов, а ошибки *извлечения* отделяются от ошибок *источника* совместным выводом. Наш `reconcile.py` — упрощённая версия: у каждого источника своя базовая надёжность (`SOURCES`), независимые источники усиливают друг друга (шумовое ИЛИ), а лидер и оппозиция сравниваются по весу, поэтому система не выбирает победителя молча при заметном противоречии.
-* **Latent Aspect Rating Analysis** (Wang, Lu, Zhai, KDD 2010) и последующие работы по **aspect-based sentiment analysis** отелей (чистота, расположение, шум, персонал): отзыв — это не одна оценка, а набор мнений по аспектам. Мы извлекаем упоминания аспектов с полярностью, учитываем отрицание («нет лифта»), раздел «минусы» и возраст отзыва (период полураспада 540 дней).
-* **Truth discovery / data fusion** — общая рамка: источники конфликтуют, нужны веса, даты и объяснимый итог.
+* **Knowledge-Based Trust** (Dong et al., Google, 2015). Trust in a source is estimated by the share of correct facts, and *extraction* errors are separated from *source* errors by joint inference. Our `reconcile.py` is a simplified version: each source has its own base reliability (`SOURCES`), independent sources reinforce each other (noisy-OR), and the leader and the opposition are compared by weight, so the system does not silently pick a winner when there is a noticeable contradiction.
+* **Latent Aspect Rating Analysis** (Wang, Lu, Zhai, KDD 2010) and later work on hotel **aspect-based sentiment analysis** (cleanliness, location, noise, staff): a review is not a single rating but a set of opinions on aspects. We extract aspect mentions with polarity, handle negation ("no elevator"), the "cons" section and review age (half-life of 540 days).
+* **Truth discovery / data fusion** — the general framework: sources conflict, so weights, dates and an explainable result are needed.
 
-## Алгоритмы, которые мы взяли
+## Algorithms we took
 
-* **r.horizon (GRASS GIS)**: «вычисляет угол горизонта по цифровой модели рельефа»; идёт вдоль луча от точки наблюдения, поднимает угол, когда рельеф его закрывает, и учитывает кривизну Земли — далёкий рельеф кажется ниже. Мы реализовали тот же приём на numpy (`app/geo/terrain.py`) плюс атмосферную рефракцию; готового модуля GRASS не используем, чтобы проект запускался одной командой `docker compose up`.
-* **Функция ходьбы Тоблера (Tobler, 1993)**: скорость пешехода от уклона; используется для времени пешком с подъёмами. Параметры (формула и пределы 0,3–1,25 от базовой скорости) — наша настройка, на реальных маршрутах не калибровалась.
+* **r.horizon (GRASS GIS)**: "computes the horizon angle from a digital elevation model"; it walks along the ray from the observation point, raises the angle when terrain blocks it, and accounts for Earth's curvature — distant terrain appears lower. We implemented the same technique in numpy (`app/geo/terrain.py`) plus atmospheric refraction; we do not use the ready-made GRASS module so that the project starts with a single `docker compose up`.
+* **Tobler's hiking function (Tobler, 1993)**: walking speed as a function of slope; used for walking time with climbs. The parameters (the formula and the 0.3–1.25 limits relative to base speed) are our own tuning and have not been calibrated on real routes.
 
-## Что не удалось проверить
+## What we could not verify
 
-Сервисы шума и «качества района» (например, HowLoud) — страницы с описанием метода получить не удалось, поэтому мы на них не ссылаемся и их метод не утверждаем. Описание Agoda и Shadowmap — со слов самих компаний.
+Noise and "neighborhood quality" services (for example HowLoud) — we could not retrieve pages describing their method, so we do not cite them and make no claims about their method. The descriptions of Agoda and Shadowmap are the companies' own statements.
 
-## Что отсюда следует для продукта
+## What follows for the product
 
-1. **Каждое значение — наблюдение** с источником, уверенностью, датой свидетельства и цитатой. Итог (факт) — всегда производный и пересчитывается.
-2. **Свежесть — часть доверия.** У каждой характеристики есть срок жизни (`ttl_days`): тишина — 180 дней, наличие лифта — 365 и т. д. Вес падает с возрастом, значение «стареет», и это видно пользователю и порождает вопрос отельеру.
-3. **Расчёт по карте проверяет слова.** Если отельер утверждает «с 3 этажа виден закат», а 3D-модель квартала этого не допускает, факт получает статус «спорно», а не «подтверждено».
-4. **Модель не должна выглядеть увереннее, чем есть.** Значение, посчитанное только по OSM (без независимого подтверждения), не получает статус «подтверждено»; имитация отельера в демо — тоже.
+1. **Every value is an observation** with a source, confidence, evidence date and a quote. The result (fact) is always derived and recomputed.
+2. **Freshness is part of trust.** Every characteristic has a lifetime (`ttl_days`): quietness — 180 days, elevator presence — 365, etc. Weight falls with age, the value "ages", and this is visible to the user and triggers a question for the hotelier.
+3. **Map calculation checks the words.** If the hotelier claims "the sunset is visible from the 3rd floor" and the 3D model of the block does not allow it, the fact gets the status "disputed", not "confirmed".
+4. **The model must not look more confident than it is.** A value computed only from OSM (without independent confirmation) does not get the status "confirmed"; neither does a simulated hotelier in the demo.
 
-5. **Не проверять всё подряд: двухэтапный отбор.** Booking.com и подобные площадки переводят запрос в фильтры по инвентарю, а дорогой разбор делают для узкого набора; у нас то же: дешёвый индекс региона → кандидаты под запрос → фоновая глубокая проверка с кэшем и лимитами. Точное устройство чужих систем мы не знаем и не утверждаем, это наш приём в том же духе.
+5. **Don't check everything: two-stage selection.** Booking.com and similar platforms translate a request into filters over the inventory and perform the expensive analysis for a narrow set; we do the same: a cheap region index → candidates for the query → background deep check with caching and limits. We do not know how other systems work internally and do not claim to; this is our own technique in the same spirit.
 
-## Источники
+## Sources
 
-* Agoda, пресс-релиз «Agoda Makes it Easier for Travelers to See Relevant Photos in Reviews» (06.05.2026): https://kyodonewsprwire.jp/release/202605068593
-* Shadowmap, «Shadow Analysis Tools Compared»: https://shadowmap.org/learn/shadow-analysis-tools-comparison
-* GRASS GIS, руководство r.horizon: https://grass.osgeo.org/grass85/manuals/r.horizon.html
-* Open-Meteo, документация Air Quality API: https://open-meteo.com/en/docs/air-quality-api
+* Agoda, press release "Agoda Makes it Easier for Travelers to See Relevant Photos in Reviews" (May 6, 2026): https://kyodonewsprwire.jp/release/202605068593
+* Shadowmap, "Shadow Analysis Tools Compared": https://shadowmap.org/learn/shadow-analysis-tools-comparison
+* GRASS GIS, r.horizon manual: https://grass.osgeo.org/grass85/manuals/r.horizon.html
+* Open-Meteo, Air Quality API documentation: https://open-meteo.com/en/docs/air-quality-api
 
-* Booking.com, пресс-релиз «Booking.com Enhances Travel Planning with New AI-Powered Features» (30.10.2024): https://www.bookingholdings.com/press-releases/booking-com-enhances-travel-planning-with-new-ai-powered-features-for-easier-smarter-decisions/
-* Airbnb Engineering, Listing Attribute Extraction Platform (разбор): https://besthub.dev/articles/airbnb-s-listing-attribute-extraction-platform-laep-end-to-end-structured-information-extraction-using-machine-learning-and-nlp-dd58eb4f8b12
-* Airbnb Engineering, «When a Picture Is Worth More Than Words»: https://medium.com/airbnb-engineering/when-a-picture-is-worth-more-than-words-17718860dcc2
-* Dong X. L. и др., «Knowledge-Based Trust: Estimating the Trustworthiness of Web Sources», 2015: https://arxiv.org/abs/1502.03519
-* Wang H., Lu Y., Zhai C., «Latent Aspect Rating Analysis on Review Text Data», KDD 2010: https://www.cs.virginia.edu/~hw5x/Course/TextMining-2019Spring/_site/docs/PDFs/Latent%20Aspect%20Rating%20Analysis.pdf
+* Booking.com, press release "Booking.com Enhances Travel Planning with New AI-Powered Features" (Oct 30, 2024): https://www.bookingholdings.com/press-releases/booking-com-enhances-travel-planning-with-new-ai-powered-features-for-easier-smarter-decisions/
+* Airbnb Engineering, Listing Attribute Extraction Platform (analysis): https://besthub.dev/articles/airbnb-s-listing-attribute-extraction-platform-laep-end-to-end-structured-information-extraction-using-machine-learning-and-nlp-dd58eb4f8b12
+* Airbnb Engineering, "When a Picture Is Worth More Than Words": https://medium.com/airbnb-engineering/when-a-picture-is-worth-more-than-words-17718860dcc2
+* Dong X. L. et al., "Knowledge-Based Trust: Estimating the Trustworthiness of Web Sources", 2015: https://arxiv.org/abs/1502.03519
+* Wang H., Lu Y., Zhai C., "Latent Aspect Rating Analysis on Review Text Data", KDD 2010: https://www.cs.virginia.edu/~hw5x/Course/TextMining-2019Spring/_site/docs/PDFs/Latent%20Aspect%20Rating%20Analysis.pdf

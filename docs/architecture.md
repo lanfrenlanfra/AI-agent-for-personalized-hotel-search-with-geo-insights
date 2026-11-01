@@ -1,57 +1,59 @@
-# Архитектура
+# Architecture
+
+**English** | [Русский](architecture.ru.md)
 
 ```
  ostrovok.ru ──► collect_ostrovok.py ──► data/raw/ostrovok/*.json ─┐
- Overpass/OSM ─► collect_osm.py ───────► data/raw/osm/tiles/*.gz ──┤  (в репозитории)
+ Overpass/OSM ─► collect_osm.py ───────► data/raw/osm/tiles/*.gz ──┤  (in the repository)
                                                                     ▼
                  ingest ─► hotels, reviews ─► collectors ─► observations ─► reconcile ─► facts ─► search / API / UI
                                                   ▲                              │
-                          hotelier answers ───────┘            questions ◄───────┘ (спорное, устаревшее, неизвестное)
+                          hotelier answers ───────┘            questions ◄───────┘ (disputed, outdated, unknown)
 ```
 
-## Модель данных (SQLite)
+## Data model (SQLite)
 
-* `observations` — что узнали: `feature, scope, value{v,summary,detail}, source, confidence, observed_at, collected_at, evidence[], method, simulated, superseded`.
-* `facts` — итог по `(отель, характеристика, область)`: значение, статус, уверенность, срок годности, объяснение, конфликт.
-* `questions`, `events` (изменения значений, перепроверки), `features` (реестр), `hotels`, `reviews`.
+* `observations` — what we learned: `feature, scope, value{v,summary,detail}, source, confidence, observed_at, collected_at, evidence[], method, simulated, superseded`.
+* `facts` — the result per `(hotel, feature, scope)`: value, status, confidence, expiry, explanation, conflict.
+* `questions`, `events` (value changes, re-checks), `features` (registry), `hotels`, `reviews`.
 
-Область (`scope`): `hotel`, `room:north…northwest` (окна на сторону света), `room:yard` (самая тихая сторона), `room:street` (самая шумная), `room:water`. Благодаря областям слово отельера («закат виден из окон на запад с 5 этажа») сравнивается с расчётом по той же стороне здания.
+Scope (`scope`): `hotel`, `room:north…northwest` (windows facing a given compass direction), `room:yard` (the quietest side), `room:street` (the noisiest side), `room:water`. Thanks to scopes, a hotelier's statement ("the sunset is visible from west-facing windows on the 5th floor") is compared with the calculation for the same side of the building.
 
-## Достоверность (`reconcile.py`)
+## Reliability (`reconcile.py`)
 
-1. Вес наблюдения = уверенность × свежесть. Свежесть: 1.0 до 0,5·TTL, линейно до 0,5 на TTL, дальше спад до 0,15.
-2. По источникам берётся лучшее наблюдение; между независимыми источниками — «шумовое ИЛИ» (два слабых свидетельства усиливают друг друга).
-3. Лидер = значение с максимальным весом. Если у противоположного значения вес ≥ 0,25 и ≥ половины веса лидера — **спорно**; от 0,04 — слабое расхождение (показываем, но не блокируем).
-4. Отельер (`hotelier`) заменяет самоотчёт карточки и оценок Островка; перебить его может только независимое свидетельство веса ≥ 0,75. Физика (`osm_geo`, `astronomy`) против слов отельера → «спорно».
-5. Имитация отельера: вес ≤ 0,5, статус не выше «вероятно». Расчёт только по OSM: не выше «вероятно».
+1. Observation weight = confidence × freshness. Freshness: 1.0 up to 0.5·TTL, falling linearly to 0.5 at TTL, then decaying to 0.15.
+2. For each source the best observation is taken; between independent sources a "noisy-OR" is used (two weak pieces of evidence reinforce each other).
+3. The leader is the value with the highest weight. If the opposite value has weight ≥ 0.25 and ≥ half of the leader's weight, the fact is **disputed**; from 0.04 it is a minor discrepancy (shown, but not blocking).
+4. The hotelier (`hotelier`) overrides the self-reported data in the Ostrovok listing and ratings; it can only be overridden by independent evidence with weight ≥ 0.75. Physics (`osm_geo`, `astronomy`) contradicting the hotelier's words → "disputed".
+5. A simulated hotelier: weight ≤ 0.5, status no higher than "likely". A calculation based only on OSM: no higher than "likely".
 
-## Геомодели (`app/geo`)
+## Geo models (`app/geo`)
 
-* **Закат**: для 15-го числа каждого месяца азимут солнца на высоте 2° (заходящее); из окна фасада (поле зрения ±55° от нормали) на каждом этаже проверяется, что вдоль луча нет здания, угол которого превышает 2°. Высота здания = `height` OSM → этажи × 3,1 + 1,5 → 18 м по умолчанию; доля явных высот снижает уверенность.
-* **Вид на достопримечательность**: слоп-тест линии «окно → вершина» по зданиям на линии взгляда, минимальный этаж и сторона.
-* **Шум**: сумма источников (дороги по классу, трамвай, ж/д, бары, стройки) с затуханием −20·lg(d) и экранированием собственным зданием 12 дБ, по каждой из 8 сторон → оценка 0–100.
-* **Пешие маршруты**: Dijkstra по графу улиц OSM (80 м/мин, штрафы за ступени и магистрали), число переходов оживлённых улиц.
-* **Белые ночи**: по широте (солнце не глубже 9° под горизонтом).
+* **Sunset**: for the 15th of each month, the sun azimuth at an altitude of 2° (setting); from the window of a facade (field of view ±55° from the normal), on each floor, the model checks that along the ray there is no building whose angle exceeds 2°. Building height = OSM `height` → floors × 3.1 + 1.5 → 18 m by default; the share of explicit heights lowers confidence.
+* **View of a landmark**: a slope test of the "window → peak" line against buildings on the line of sight, giving the minimum floor and the side.
+* **Noise**: sum of sources (roads by class, trams, railways, bars, construction sites) with attenuation of −20·lg(d) and 12 dB shielding by the building itself, for each of the 8 sides → a score from 0 to 100.
+* **Walking routes**: Dijkstra over the OSM street graph (80 m/min, penalties for steps and arterial roads), plus the number of busy-street crossings.
+* **White nights**: by latitude (the sun no deeper than 9° below the horizon).
 
-### Рельеф, лес, подъёмы (`app/dem.py`, `app/geo/terrain.py`, `app/osmextra.py`)
+### Terrain, forest, climbs (`app/dem.py`, `app/geo/terrain.py`, `app/osmextra.py`)
 
-* **Модель высот**: плитки Terrarium (Terrain Tiles на AWS, без ключа; высота = R·256 + G + B/256 − 32768) в трёх слоях: z13 до 1,8 км (≈12 м на пиксель), z11 до 9 км (≈47 м), z9 до 75 км (≈190 м). Кэш — сжатые int16 в `data/raw/dem/`, билинейная выборка векторно, вне слоя NaN.
-* **Горизонт**: как в r.horizon (GRASS GIS): по каждому азимуту (шаг 0,25°) берётся максимальный угол подъёма над рельефом на пути луча, с поправкой на кривизну Земли и рефракцию (k = 0,13). Итоговое препятствие для закатного луча — максимум из угла застройки/леса (сцена OSM) и угла рельефа.
-* **Солнце**: положение по часовому углу; диск считается видимым, если высота центра > −0,833° + угол рельефа. Отсюда «потеря света на закате» и «задержка восхода» в минутах и часы прямого солнца зимой.
-* **Здания на склоне**: у каждого здания `base` — высота земли относительно отеля (из DEM), препятствие = base + высота. Высота отеля — медиана по девяти точкам в 120 м, чтобы одна «битая» ячейка (береговая, батиметрия) не сдвигала расчёт.
-* **Лес**: многоугольники OSM (`natural=wood`, `landuse=forest`) — препятствие типовой высоты; если окно внутри леса — 25 м до кромки (`FOREST_EDGE_M`).
-* **Горы**: хребет выше 2° над застройкой в поле зрения окна; названные вершины (OSM `natural=peak`, `ele`) в 70 км проверяются на видимость по профилю рельефа.
-* **Пешком**: рёбра графа получают время по функции Тоблера (скорость падает на подъёме и спуске круче ≈5%), в ответе — набор высоты.
-* **Без рельефа** ничего не ломается: расчёт идёт по плоской местности, уверенность ×0,85, в тексте «(рельеф не учтён)», характеристики только из рельефа (`mountain_view`, `sun_hours_winter`) не создаются.
+* **Elevation model**: Terrarium tiles (Terrain Tiles on AWS, no key; elevation = R·256 + G + B/256 − 32768) in three layers: z13 up to 1.8 km (≈12 m per pixel), z11 up to 9 km (≈47 m), z9 up to 75 km (≈190 m). The cache is compressed int16 in `data/raw/dem/`, bilinear sampling is vectorized, NaN outside a layer.
+* **Horizon**: as in r.horizon (GRASS GIS): for each azimuth (0.25° step) the maximum elevation angle above the terrain along the ray path is taken, corrected for Earth's curvature and refraction (k = 0.13). The resulting obstruction for the sunset ray is the maximum of the building/forest angle (OSM scene) and the terrain angle.
+* **Sun**: position by hour angle; the disc counts as visible if the altitude of its center > −0.833° + terrain angle. From this come "light lost at sunset" and "sunrise delay" in minutes, and hours of direct sun in winter.
+* **Buildings on a slope**: each building has a `base` — ground elevation relative to the hotel (from the DEM); obstruction = base + height. The hotel's elevation is the median over nine points within 120 m, so that a single "bad" cell (shoreline, bathymetry) doesn't shift the calculation.
+* **Forest**: OSM polygons (`natural=wood`, `landuse=forest`) are an obstruction of typical height; if the window is inside a forest, 25 m to the edge (`FOREST_EDGE_M`).
+* **Mountains**: a ridge more than 2° above the buildings within the window's field of view; named peaks (OSM `natural=peak`, `ele`) within 70 km are checked for visibility along the terrain profile.
+* **On foot**: graph edges get their travel time from Tobler's function (speed drops on climbs and descents steeper than ≈5%); the response includes the elevation gain.
+* **Without terrain** nothing breaks: the calculation runs on flat ground, confidence ×0.85, the text says "(terrain not accounted for)", and characteristics that depend only on terrain (`mountain_view`, `sun_hours_winter`) are not created.
 
-## Внешние источники (`app/probes/`, `app/extcache.py`)
+## External sources (`app/probes/`, `app/extcache.py`)
 
-Каждая проба (`climate`, `air`, `wiki`, `commons`, `masts`) получает запись отеля и возвращает наблюдения с источником, методом, ссылкой на первоисточник (`evidence[].url`) и уверенностью, плюс статус запуска (таблица `probe_runs`). Запрос к API идёт через `extcache.fetch_json`: свежий кэш → сеть (таймаут `PROBE_TIMEOUT`, «автомат» отключает хост после двух неудач подряд на 2 минуты) → старый кэш с возрастом → честное «нет данных». Ответы сжимаются до нужных агрегатов перед записью (`reduce`), чтобы кэш в репозитории был небольшим; ключи API в кэш и ссылки не попадают. Статусы источников в сведении: `open_meteo`, `open_meteo_aq`, `osm_masts` относятся к модельным (`MODEL_ONLY` в `reconcile.py`) — одной такой записи для «подтверждено» мало.
+Each probe (`climate`, `air`, `wiki`, `commons`, `masts`) receives a hotel record and returns observations with a source, method, a link to the primary source (`evidence[].url`) and confidence, plus a run status (the `probe_runs` table). API requests go through `extcache.fetch_json`: fresh cache → network (timeout `PROBE_TIMEOUT`; a circuit breaker disables a host for 2 minutes after two consecutive failures) → stale cache with its age → an honest "no data". Responses are reduced to the needed aggregates before being written (`reduce`), so that the cache in the repository stays small; API keys never end up in the cache or in links. In reconciliation, the sources `open_meteo`, `open_meteo_aq`, `osm_masts` are treated as model-based (`MODEL_ONLY` in `reconcile.py`) — a single such record is not enough for "confirmed".
 
-## Индекс региона и дозаполнение по запросу (`catalog.py`, `enrich.py`)
+## Region index and on-demand enrichment (`catalog.py`, `enrich.py`)
 
-Двухэтапный поиск по большому инвентарю. Таблица `catalog` хранит дешёвые признаки всех отелей региона (из страниц каталога Островка) и статус глубокой проверки (`''/queued/running/done/failed`). `catalog.stratified_sample` выбирает стартовую выборку разнообразной (район × цена × тип), `catalog.coarse_score` оценивает кандидатов под запрос по дешёвым признакам, `enrich.augment` ставит лучших в очередь, а фоновый воркер проходит весь конвейер (карточка → тайлы OSM → наблюдения → сведение фактов → вопросы отельеру). Поиск отвечает сразу по проверенным и честно показывает покрытие (`coverage`), а UI опрашивает `/api/search` с `passive`, пока очередь не пуста.
+Two-stage search over a large inventory. The `catalog` table stores cheap features of all hotels in the region (from Ostrovok catalog pages) and the deep-check status (`''/queued/running/done/failed`). `catalog.stratified_sample` picks a diverse starting sample (district × price × type), `catalog.coarse_score` scores candidates for a query using the cheap features, `enrich.augment` queues the best ones, and a background worker runs the whole pipeline (listing → OSM tiles → observations → fact reconciliation → questions for the hotelier). Search answers immediately from the already-checked hotels and honestly shows the coverage (`coverage`), while the UI polls `/api/search` with `passive` until the queue is empty.
 
-## Перепроверка (`freshness.py`)
+## Re-checking (`freshness.py`)
 
-Статусы пересчитываются по возрасту; «Перепроверить» заново запускает сборщики (онлайн — с перекачкой карточки, отзывов, тайлов OSM) и пишет событие при каждом изменении значения. Демо-режим добавляет здание на карту, чтобы показать, как факт меняется и как это превращается в вопрос отельеру.
+Statuses are recomputed by age; "Re-check" re-runs the collectors (online — re-downloading the listing, reviews and OSM tiles) and writes an event whenever a value changes. Demo mode adds a building to the map to show how a fact changes and how that turns into a question for the hotelier.

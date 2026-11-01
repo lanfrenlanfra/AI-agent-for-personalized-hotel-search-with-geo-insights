@@ -1,72 +1,74 @@
-# AI-агент персонализированного поиска отелей с гео-аналитикой
+# AI Agent for Personalized Hotel Search with Geo Insights
 
-> Проект хакатона Островка, трек «О!дин шаг до идеального отеля».
+**English** | [Русский](README.ru.md)
 
-Опишите отдых словами и, если хотите, приложите фото. Ква подберет три отеля с учетом даже тех пожеланий, информации о которых нет в карточках Островка: что видно из окна, насколько тихо, как дойти пешком. Для найденной информации показывает, откуда она и насколько ей можно верить.
-- Регион - Байкал
-- Видео демо [смотреть на Google Drive](https://drive.google.com/drive/folders/1ahUVVx5AGqXZvGPdsNkKGdb7JO3P3vSh?usp=sharing)
-- Презентация: [docs/presentation.pdf](docs/presentation.pdf)
-- Сервис запускается локально
-Агент достаёт из открытых данных то, чего нет в карточке Островка: закат и вид из окна, тишину, пеший путь с учётом высот, ночные заведения, климат, воздух. Каждый факт приходит с источником, уверенностью и сроком годности. Регион — озеро Байкал.
+Describe your trip in your own words and, if you like, attach a photo. Kva picks three hotels that match even the wishes that aren't covered in Ostrovok listings: what you see from the window, how quiet it is, how to get around on foot. For everything it finds, it shows where the information comes from and how far it can be trusted.
+- Region: Lake Baikal
+- Demo video: [watch on Google Drive](https://drive.google.com/drive/folders/1ahUVVx5AGqXZvGPdsNkKGdb7JO3P3vSh?usp=sharing)
+- Presentation: [docs/presentation.pdf](docs/presentation.pdf)
+- The service runs locally
 
-## Что умеет
+The agent extracts from open data what is missing from an Ostrovok listing: sunset and the view from the window, quietness, walking routes that account for elevation, nightlife, climate, air quality. Every fact comes with a source, a confidence level and an expiry date. Region: Lake Baikal.
 
-- **Поиск по описанию и по фото.** Запрос можно написать своими словами или показать картинкой, например «хочу такой вид». Ква выбирает три лучших отеля и объясняет выбор.
-- **Закат и вид из окна.** Считает по рельефу и высоте соседних зданий: когда садится солнце, закроют ли его дом или гора, видно ли озеро и вершины.
-- **Тишина.** Оценивает шум с каждой стороны здания: дороги, заведения, стройки рядом.
-- **Пешие маршруты с подъемами.** До пляжа, остановки, центра и аэропорта: время считается с учетом высот, а не по прямой.
-- **Ночные заведения, семья, машина.** Что открыто допоздна, удобно ли с детьми, где парковка и зарядка для электромобиля.
-- **Климат и воздух.** Сколько солнечных дней в сезоне, какой воздух и погода по данным Open-Meteo.
-- **История места.** Факты из Википедии и Wikidata, фотографии с геометкой из Wikimedia Commons.
-- **Честность.** У каждого факта есть источник, дата и уровень уверенности; если данных нет, Ква так и пишет, а не придумывает.
-- **Спорное уточняет отельер.** В кабинете он подтверждает или опровергает факт, свободный ответ разбирается в поля.
-- **Работает без интернета.** Все нужные данные лежат в репозитории.
-## Быстрый старт
+## Features
+
+- **Search by description and by photo.** Write the request in your own words or show a picture, e.g. "I want a view like this". Kva picks the three best hotels and explains the choice.
+- **Sunset and view from the window.** Calculated from terrain and the height of neighboring buildings: when the sun sets, whether a building or a mountain will block it, whether the lake and peaks are visible.
+- **Quietness.** Estimates noise on each side of the building: roads, venues, nearby construction.
+- **Walking routes with elevation.** To the beach, bus stop, city center and airport: travel time accounts for elevation, not straight-line distance.
+- **Nightlife, family, car.** What is open late, how convenient it is with kids, where to park and charge an electric car.
+- **Climate and air.** How many sunny days per season, air quality and weather based on Open-Meteo data.
+- **Local history.** Facts from Wikipedia and Wikidata, geotagged photos from Wikimedia Commons.
+- **Honesty.** Every fact has a source, a date and a confidence level; if there is no data, Kva says so instead of making things up.
+- **Disputed points are clarified by the hotelier.** In the hotelier dashboard they confirm or refute a fact; a free-text answer is parsed into fields.
+- **Works offline.** All required data is stored in the repository.
+
+## Quick start
 
 ```bash
 git clone https://github.com/ostrovok-hackathon-2026/liagushki.git
 cd liagushki
-cp .env.example .env   # необязательно: включает встроенную LLM (Ollama, ≈3,3 ГБ при первом старте)
+cp .env.example .env   # optional: enables the built-in LLM (Ollama, ≈3.3 GB on first start)
 docker compose up --build
-открыть http://localhost:8080
+# open http://localhost:8080
 ```
 
-## Зависимости и переменные окружения
+## Requirements and environment variables
 
-Рекомендованные ресурсы:
-- 1 CPU core, 512 MB RAM (без LLM)
-- 4 CPU cores, 8 GB RAM (с LLM)
+Recommended resources:
+- 1 CPU core, 512 MB RAM (without LLM)
+- 4 CPU cores, 8 GB RAM (with LLM)
 
-Нужен только Docker (Compose v2.24+). Python 3.13, Starlette, SQLite (том `kva-runtime`).
+Only Docker is required (Compose v2.24+). Python 3.13, Starlette, SQLite (volume `kva-runtime`).
 
-- `APP_PORT` (по умолчанию `8080`)
-- `COMPOSE_PROFILES` (по умолчанию пусто; `llm` — поднять Ollama)
-- `LLM_MODEL` (по умолчанию `gemma3:4b`)
-- `HOTELIER_LOGIN` / `HOTELIER_PASSWORD` (по умолчанию `hotelier` / `hotelier123`)
-- `DEM_FETCH`, `PROBES_ONLINE` (по умолчанию `true`: докачивать рельеф и ходить во внешние источники, если есть интернет)
+- `APP_PORT` (default `8080`)
+- `COMPOSE_PROFILES` (empty by default; `llm` starts Ollama)
+- `LLM_MODEL` (default `gemma3:4b`)
+- `HOTELIER_LOGIN` / `HOTELIER_PASSWORD` (default `hotelier` / `hotelier123`)
+- `DEM_FETCH`, `PROBES_ONLINE` (default `true`: download terrain data and query external sources when internet is available)
 
-Полный список — в `.env.example`.
+The full list is in `.env.example`.
 
-## Сидирование
+## Seeding
 
-Выполняется само при первом старте: сервис читает `data/raw/` и считает характеристики. Руками ничего запускать не нужно.
+Runs automatically on first start: the service reads `data/raw/` and computes the characteristics. You don't need to run anything manually.
 
 ```bash
-make seed  # пересчитать данные в запущенном сервисе
-docker compose --profile collect run --rm collect  # пересобрать данные заново (нужен интернет, 10–20 мин)
+make seed  # recompute the data in a running service
+docker compose --profile collect run --rm collect  # rebuild the data from scratch (internet required, 10–20 min)
 ```
 
-## Маршруты/доступ
+## Routes / access
 
-- `/` — UI (чат с лягушкой, поиск, карточка отеля, сравнение)
+- `/` — UI (chat with the frog, search, hotel card, comparison)
 - `/health` — 200 OK, JSON `{"status":"ok"}`
-- `/#/hotelier` — кабинет отельера: `hotelier / hotelier123`
-- `/api/search?q=тихий+номер+с+закатом` — поиск (JSON)
+- `/#/hotelier` — hotelier dashboard: `hotelier / hotelier123`
+- `/api/search?q=тихий+номер+с+закатом` — search (JSON); the example query means "quiet room with a sunset"
 
-## Подробнее
+## Learn more
 
-- [docs/details.md](docs/details.md) — как работает сервис, откуда берется каждая характеристика, ограничения
-- [docs/architecture.md](docs/architecture.md) — достоверность и геомодели
-- [docs/research.md](docs/research.md) — как это делают Booking.com и Airbnb
+- [docs/details.md](docs/details.md) ([RU](docs/details.ru.md)) — how the service works, where each characteristic comes from, limitations
+- [docs/architecture.md](docs/architecture.md) ([RU](docs/architecture.ru.md)) — data reliability and geo models
+- [docs/research.md](docs/research.md) ([RU](docs/research.ru.md)) — how Booking.com and Airbnb do it
 
-Тесты: `pip install -r requirements-dev.txt && python -m pytest -q`.
+Tests: `pip install -r requirements-dev.txt && python -m pytest -q`.
